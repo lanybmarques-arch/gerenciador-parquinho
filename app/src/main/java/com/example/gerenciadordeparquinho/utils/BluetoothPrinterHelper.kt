@@ -96,16 +96,18 @@ object BluetoothPrinterHelper {
                     }
                 }
 
-                // IMPRESSÃO DA MENSAGEM CUSTOMIZADA (ANTIGO NOME DO ESTABELECIMENTO)
+                // IMPRESSÃO DA MENSAGEM CUSTOMIZADA (AJUSTADA PARA BIG_FONT 2x2 PARA CABER NA MARGEM)
                 if (!customMessage.isNullOrBlank()) {
+                    out.write(CENTER)
                     out.write(BOLD_ON)
-                    out.write(NORMAL_FONT)
+                    out.write(BIG_FONT) // REDUZIDO DE HUGE PARA BIG PARA NÃO SAIR DA MARGEM
                     out.write("$customMessage\n\n".toByteArray(Charsets.ISO_8859_1))
                     out.write(BOLD_OFF)
+                    out.write(NORMAL_FONT)
                 }
 
                 out.write(BOLD_ON)
-                out.write(HUGE_FONT)
+                out.write(BIG_FONT) // AJUSTADO TAMBÉM O TÍTULO PARA 2x2
                 
                 val title = if (session.isFinished) "TICKET\nDE\nSAIDA" else "TICKET\nDE\nENTRADA"
                 out.write("$title\n\n".toByteArray(Charsets.ISO_8859_1))
@@ -179,12 +181,14 @@ object BluetoothPrinterHelper {
                     }
                 }
 
-                // IMPRESSÃO DA MENSAGEM CUSTOMIZADA NO RELATÓRIO
+                // IMPRESSÃO DA MENSAGEM CUSTOMIZADA NO RELATÓRIO (AJUSTADA PARA BIG_FONT 2x2)
                 if (!customMessage.isNullOrBlank()) {
+                    out.write(CENTER)
                     out.write(BOLD_ON)
-                    out.write(NORMAL_FONT)
+                    out.write(BIG_FONT) // REDUZIDO PARA 2x2 PARA CABER NA MARGEM
                     out.write("$customMessage\n\n".toByteArray(Charsets.ISO_8859_1))
                     out.write(BOLD_OFF)
+                    out.write(NORMAL_FONT)
                 }
 
                 out.write(BOLD_ON)

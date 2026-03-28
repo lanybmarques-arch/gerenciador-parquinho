@@ -128,7 +128,7 @@ fun SettingsScreen(
             OutlinedTextField(
                 value = appName,
                 onValueChange = onAppNameChange,
-                label = { Text("Nome do Parquinho", color = if(isLightMode) Color.Black else IntenseGreen) },
+                label = { Text("Texto", color = if(isLightMode) Color.Black else IntenseGreen) },
                 modifier = Modifier.fillMaxWidth(),
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = IntenseGreen,
