@@ -1,6 +1,7 @@
 package com.example.gerenciadordeparquinho.ui.screens
 
 import android.widget.Toast
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -84,7 +85,8 @@ fun ReportScreen(
         Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = IntenseGreen),
-            shape = RoundedCornerShape(20.dp)
+            shape = RoundedCornerShape(20.dp),
+            border = if (isLightMode) BorderStroke(0.5.dp, Color.Black.copy(alpha = 0.4f)) else null
         ) {
             Row(
                 modifier = Modifier.padding(20.dp).fillMaxWidth(),
@@ -146,7 +148,8 @@ fun ReportScreen(
                 onClick = { /* Lógica PDF */ },
                 modifier = Modifier.weight(1f).height(54.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = IntenseGreen, contentColor = Color.Black),
-                shape = RoundedCornerShape(27.dp)
+                shape = RoundedCornerShape(27.dp),
+                border = if (isLightMode) BorderStroke(0.5.dp, Color.Black.copy(alpha = 0.4f)) else null
             ) {
                 Text("PDF / WHATS", fontWeight = FontWeight.Black, fontSize = 13.sp)
             }
@@ -167,7 +170,8 @@ fun ReportScreen(
                 },
                 modifier = Modifier.weight(1f).height(54.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = IntenseGreen, contentColor = Color.Black),
-                shape = RoundedCornerShape(27.dp)
+                shape = RoundedCornerShape(27.dp),
+                border = if (isLightMode) BorderStroke(0.5.dp, Color.Black.copy(alpha = 0.4f)) else null
             ) {
                 Text("IMPRIMIR", fontWeight = FontWeight.Black, fontSize = 13.sp)
             }
