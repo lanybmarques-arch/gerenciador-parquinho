@@ -109,7 +109,7 @@ fun HomeScreen(
                     contentDescription = null, 
                     tint = if (isLightMode) Color.Black else IntenseGreen, 
                     modifier = Modifier.size(28.dp)
-                )
+                ) 
             }
         }
         Spacer(modifier = Modifier.height(24.dp))
@@ -158,7 +158,13 @@ fun HomeScreen(
                 scope.launch { 
                     db.sessionDao().insertSession(newSession)
                     if (printTicketAutomatic && printerMac.isNotEmpty()) {
-                        BluetoothPrinterHelper.printEntranceTicket(printerMac, newSession, printerSize, logoBase64)
+                        BluetoothPrinterHelper.printEntranceTicket(
+                            macAddress = printerMac, 
+                            session = newSession, 
+                            size = printerSize, 
+                            logoBase64 = logoBase64,
+                            customMessage = appName
+                        )
                     }
                 }
                 childName = ""; selectedToy = null
@@ -184,6 +190,7 @@ fun HomeScreen(
                     printerMac = printerMac,
                     printerSize = printerSize,
                     logoBase64 = logoBase64,
+                    appName = appName,
                     isLightMode = isLightMode,
                     onFinish = { s -> 
                         scope.launch { 
@@ -248,7 +255,7 @@ fun HomeScreen(
                                     }
                                     Row {
                                         IconButton(onClick = { 
-                                            if(printerMac.isNotEmpty()) BluetoothPrinterHelper.printEntranceTicket(printerMac, session, printerSize, logoBase64) 
+                                            if(printerMac.isNotEmpty()) BluetoothPrinterHelper.printEntranceTicket(printerMac, session, printerSize, logoBase64, appName) 
                                         }) { Icon(Icons.Default.Print, null, tint = IntenseGreen) }
                                         IconButton(onClick = { scope.launch { db.sessionDao().deleteSession(session) } }) { Icon(Icons.Default.Delete, null, tint = Color.Red) }
                                     }
@@ -293,6 +300,7 @@ fun ActiveTimerItemUI(
     printerMac: String,
     printerSize: String,
     logoBase64: String?,
+    appName: String,
     isLightMode: Boolean,
     onFinish: (PlaySession) -> Unit,
     onContinue: (PlaySession) -> Unit,

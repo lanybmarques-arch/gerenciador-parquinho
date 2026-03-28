@@ -69,6 +69,7 @@ object BluetoothPrinterHelper {
         session: PlaySession, 
         size: String = "58mm",
         logoBase64: String? = null,
+        customMessage: String? = null,
         onResult: (Boolean, String) -> Unit = { _, _ -> }
     ) {
         if (macAddress.isEmpty()) {
@@ -95,10 +96,17 @@ object BluetoothPrinterHelper {
                     }
                 }
 
+                // IMPRESSÃO DA MENSAGEM CUSTOMIZADA (ANTIGO NOME DO ESTABELECIMENTO)
+                if (!customMessage.isNullOrBlank()) {
+                    out.write(BOLD_ON)
+                    out.write(NORMAL_FONT)
+                    out.write("$customMessage\n\n".toByteArray(Charsets.ISO_8859_1))
+                    out.write(BOLD_OFF)
+                }
+
                 out.write(BOLD_ON)
-                out.write(HUGE_FONT) // Título maior conforme pedido
+                out.write(HUGE_FONT)
                 
-                // Título dinâmico se já finalizado
                 val title = if (session.isFinished) "TICKET\nDE\nSAIDA" else "TICKET\nDE\nENTRADA"
                 out.write("$title\n\n".toByteArray(Charsets.ISO_8859_1))
 
@@ -109,13 +117,11 @@ object BluetoothPrinterHelper {
                 out.write("CLIENTE: ${session.personName.uppercase()}\n".toByteArray(Charsets.ISO_8859_1))
                 out.write("BRINQUEDO: ${session.toyName.uppercase()}\n".toByteArray(Charsets.ISO_8859_1))
                 
-                // Valor: se finalizado, mostra o valor acumulado (cobrado). Se entrada, mostra o preço do brinquedo.
                 val valToPrint = if (session.isFinished) session.totalValueAccumulated else session.toyPrice
                 out.write("VALOR: R$ %.2f\n".format(valToPrint).toByteArray(Charsets.ISO_8859_1))
                 
                 out.write("INICIO: ${session.startTime}\n".toByteArray(Charsets.ISO_8859_1))
 
-                // FIM: usa o horário real se finalizado, senão calcula o estimado
                 val endTimeToShow = if (!session.endTime.isNullOrEmpty()) {
                     session.endTime
                 } else {
@@ -149,6 +155,7 @@ object BluetoothPrinterHelper {
         total: Double,
         size: String = "58mm",
         logoBase64: String? = null,
+        customMessage: String? = null,
         onResult: (Boolean, String) -> Unit = { _, _ -> }
     ) {
         if (macAddress.isEmpty()) return
@@ -170,6 +177,14 @@ object BluetoothPrinterHelper {
                         printBitmap(out, bmp, size)
                         out.write("\n\n".toByteArray())
                     }
+                }
+
+                // IMPRESSÃO DA MENSAGEM CUSTOMIZADA NO RELATÓRIO
+                if (!customMessage.isNullOrBlank()) {
+                    out.write(BOLD_ON)
+                    out.write(NORMAL_FONT)
+                    out.write("$customMessage\n\n".toByteArray(Charsets.ISO_8859_1))
+                    out.write(BOLD_OFF)
                 }
 
                 out.write(BOLD_ON)

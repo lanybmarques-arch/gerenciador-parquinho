@@ -28,7 +28,7 @@ import kotlinx.coroutines.launch
 
 @Composable
 fun AccessManagementScreen(
-    isLightMode: Boolean = false // SOLUÇÃO CIRÚRGICA: Valor padrão evita erro de assinatura
+    isLightMode: Boolean = false
 ) {
     val context = LocalContext.current
     val db = remember { AppDatabase.getDatabase(context) }
@@ -247,15 +247,31 @@ fun PermissionSwitch(label: String, checked: Boolean, isLightMode: Boolean, onCh
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(label, color = if(isLightMode) Color.Black else Color.White, fontSize = 14.sp, fontWeight = if(isLightMode) FontWeight.Bold else FontWeight.Normal)
+        
+        val switchColors = if (isLightMode) {
+            // MODO CLARO: Preto sólido ao acionar
+            SwitchDefaults.colors(
+                checkedThumbColor = Color.Black,
+                checkedTrackColor = Color.Black.copy(alpha = 0.3f),
+                checkedBorderColor = Color.Black,
+                uncheckedThumbColor = Color.Gray,
+                uncheckedTrackColor = Color.LightGray.copy(alpha = 0.5f),
+                uncheckedBorderColor = Color.Gray
+            )
+        } else {
+            // MODO ESCURO: Verde intenso (Padrão original)
+            SwitchDefaults.colors(
+                checkedThumbColor = IntenseGreen,
+                checkedTrackColor = IntenseGreen.copy(alpha = 0.5f),
+                uncheckedThumbColor = Color.DarkGray,
+                uncheckedTrackColor = Color.Black
+            )
+        }
+
         Switch(
             checked = checked,
             onCheckedChange = onCheckedChange,
-            colors = SwitchDefaults.colors(
-                checkedThumbColor = IntenseGreen,
-                checkedTrackColor = IntenseGreen.copy(alpha = 0.5f),
-                uncheckedThumbColor = if(isLightMode) Color.Gray else Color.DarkGray,
-                uncheckedTrackColor = if(isLightMode) Color.LightGray else Color.Black
-            )
+            colors = switchColors
         )
     }
 }

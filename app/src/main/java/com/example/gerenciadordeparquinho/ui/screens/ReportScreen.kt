@@ -23,19 +23,18 @@ import com.example.gerenciadordeparquinho.data.repository.AppDatabase
 import com.example.gerenciadordeparquinho.ui.theme.IntenseGreen
 import com.example.gerenciadordeparquinho.ui.theme.getHighlightStyle
 import com.example.gerenciadordeparquinho.utils.BluetoothPrinterHelper
-import androidx.compose.runtime.rememberCoroutineScope
 import java.text.SimpleDateFormat
 import java.util.*
 
 @Composable
 fun ReportScreen(
+    printerMessage: String = "",
     printerMac: String = "",
     printerSize: String = "58mm",
     logoBase64: String? = null,
     onSearchClick: () -> Unit = {},
     isLightMode: Boolean = false
 ) {
-    val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val db = remember { AppDatabase.getDatabase(context) }
     val today = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).format(Date())
@@ -131,7 +130,8 @@ fun ReportScreen(
                                 macAddress = printerMac,
                                 session = session,
                                 size = printerSize,
-                                logoBase64 = logoBase64
+                                logoBase64 = logoBase64,
+                                customMessage = printerMessage
                             )
                         } else {
                             Toast.makeText(context, "Configure a impressora!", Toast.LENGTH_SHORT).show()
@@ -163,7 +163,8 @@ fun ReportScreen(
                             history = sessionsToday,
                             total = totalApurado,
                             size = printerSize,
-                            logoBase64 = logoBase64
+                            logoBase64 = logoBase64,
+                            customMessage = printerMessage
                         )
                     } else {
                         Toast.makeText(context, "Configure a impressora!", Toast.LENGTH_SHORT).show()
