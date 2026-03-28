@@ -74,8 +74,8 @@ fun ReportScreen(
                 Icon(
                     imageVector = Icons.Default.Search,
                     contentDescription = "Buscar",
-                    tint = IntenseGreen,
-                    modifier = Modifier.size(26.dp)
+                    tint = if (isLightMode) Color.Black else IntenseGreen,
+                    modifier = Modifier.size(28.dp)
                 )
             }
         }

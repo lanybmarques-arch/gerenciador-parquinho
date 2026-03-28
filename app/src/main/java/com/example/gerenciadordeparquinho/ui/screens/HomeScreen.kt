@@ -104,7 +104,12 @@ fun HomeScreen(
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Text("CONTROLE", color = IntenseGreen, fontSize = 24.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis, style = highlightStyle)
             IconButton(onClick = { showTicketsDialog = true }) { 
-                Icon(Icons.Default.Print, null, tint = IntenseGreen, modifier = Modifier.size(32.dp)) 
+                Icon(
+                    imageVector = Icons.Default.Print, 
+                    contentDescription = null, 
+                    tint = if (isLightMode) Color.Black else IntenseGreen, 
+                    modifier = Modifier.size(28.dp)
+                )
             }
         }
         Spacer(modifier = Modifier.height(24.dp))

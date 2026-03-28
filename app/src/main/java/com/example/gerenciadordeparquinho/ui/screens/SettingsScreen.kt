@@ -107,7 +107,12 @@ fun SettingsScreen(
                 style = highlightStyle
             )
             IconButton(onClick = { onSoundToggle(!isSoundEnabled) }) {
-                Icon(imageVector = if (isSoundEnabled) Icons.Default.VolumeUp else Icons.AutoMirrored.Filled.VolumeOff, contentDescription = "Som", tint = IntenseGreen, modifier = Modifier.size(26.dp))
+                Icon(
+                    imageVector = if (isSoundEnabled) Icons.Default.VolumeUp else Icons.AutoMirrored.Filled.VolumeOff, 
+                    contentDescription = "Som", 
+                    tint = if (isLightMode) Color.Black else IntenseGreen, 
+                    modifier = Modifier.size(28.dp)
+                )
             }
         }
 
