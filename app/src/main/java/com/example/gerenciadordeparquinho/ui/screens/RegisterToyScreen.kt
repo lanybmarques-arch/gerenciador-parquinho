@@ -56,6 +56,7 @@ fun RegisterToyScreen(isLightMode: Boolean = false) {
     var toyMinutes by remember { mutableStateOf("") }
     var isAlwaysFree by remember { mutableStateOf(false) }
     var selectedImageBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var currentPhotoBase64 by remember { mutableStateOf<String?>(null) }
 
     val toys by db.toyDao().getAllToys().collectAsState(initial = emptyList())
 
@@ -71,6 +72,12 @@ fun RegisterToyScreen(isLightMode: Boolean = false) {
                     ImageDecoder.decodeBitmap(source)
                 }
                 selectedImageBitmap = bitmap
+                
+                // Converte logo para base64 para persistência temporária durante edição
+                val outputStream = ByteArrayOutputStream()
+                bitmap.compress(Bitmap.CompressFormat.PNG, 70, outputStream)
+                currentPhotoBase64 = Base64.encodeToString(outputStream.toByteArray(), Base64.DEFAULT)
+                
             } catch (e: Exception) { e.printStackTrace() }
         }
     }
@@ -163,30 +170,23 @@ fun RegisterToyScreen(isLightMode: Boolean = false) {
             onClick = {
                 if (toyName.isNotBlank() && toyValue.isNotBlank()) {
                     scope.launch {
-                        var base64Image: String? = null
-                        selectedImageBitmap?.let { bitmap ->
-                            val outputStream = ByteArrayOutputStream()
-                            bitmap.compress(Bitmap.CompressFormat.PNG, 70, outputStream)
-                            base64Image = Base64.encodeToString(outputStream.toByteArray(), Base64.DEFAULT)
-                        }
-
                         val toyToSave = editingToy?.copy(
                             name = toyName,
                             price = toyValue.replace(",", ".").toDoubleOrNull() ?: 0.0,
                             timeMinutes = toyMinutes.toIntOrNull() ?: 0,
                             isAlwaysFree = isAlwaysFree,
-                            imageBase64 = base64Image ?: editingToy?.imageBase64
+                            imageBase64 = currentPhotoBase64 ?: editingToy?.imageBase64
                         ) ?: Toy(
                             name = toyName,
                             price = toyValue.replace(",", ".").toDoubleOrNull() ?: 0.0,
                             timeMinutes = toyMinutes.toIntOrNull() ?: 0,
                             isAlwaysFree = isAlwaysFree,
-                            imageBase64 = base64Image
+                            imageBase64 = currentPhotoBase64
                         )
 
                         db.toyDao().insertToy(toyToSave)
                         editingToy = null
-                        toyName = ""; toyValue = ""; toyMinutes = ""; isAlwaysFree = false; selectedImageBitmap = null
+                        toyName = ""; toyValue = ""; toyMinutes = ""; isAlwaysFree = false; selectedImageBitmap = null; currentPhotoBase64 = null
                     }
                 }
             },
@@ -201,7 +201,7 @@ fun RegisterToyScreen(isLightMode: Boolean = false) {
         if (editingToy != null) {
             TextButton(onClick = {
                 editingToy = null
-                toyName = ""; toyValue = ""; toyMinutes = ""; isAlwaysFree = false; selectedImageBitmap = null
+                toyName = ""; toyValue = ""; toyMinutes = ""; isAlwaysFree = false; selectedImageBitmap = null; currentPhotoBase64 = null
             }, modifier = Modifier.align(Alignment.CenterHorizontally)) {
                 Text("CANCELAR EDIÇÃO", color = secondaryColor, fontWeight = if(isLightMode) FontWeight.Bold else FontWeight.Normal)
             }
@@ -222,6 +222,7 @@ fun RegisterToyScreen(isLightMode: Boolean = false) {
                     toyValue = toy.price.toString()
                     toyMinutes = toy.timeMinutes.toString()
                     isAlwaysFree = toy.isAlwaysFree
+                    currentPhotoBase64 = toy.imageBase64
                     selectedImageBitmap = base64ToBitmap(toy.imageBase64)
                 }
             )

@@ -12,6 +12,9 @@ interface SessionDao {
     @Query("SELECT * FROM play_sessions WHERE isFinished = 0 AND isCancelled = 0 ORDER BY remainingSeconds ASC")
     fun getActiveSessions(): Flow<List<PlaySession>>
 
+    @Query("SELECT * FROM play_sessions WHERE isFinished = 0 AND isCancelled = 0")
+    suspend fun getActiveSessionsList(): List<PlaySession>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertSession(session: PlaySession)
 

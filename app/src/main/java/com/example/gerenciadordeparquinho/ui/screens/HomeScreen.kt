@@ -215,7 +215,15 @@ fun HomeScreen(
                         }
                     },
                     onToyChanged = { updated -> scope.launch { db.sessionDao().insertSession(updated.copy(lastUpdateTimestamp = System.currentTimeMillis())) } },
-                    onPauseToggle = { paused -> scope.launch { db.sessionDao().insertSession(session.copy(isPaused = paused, lastUpdateTimestamp = System.currentTimeMillis())) } }
+                    onPauseToggle = { paused, releaseToy -> 
+                        scope.launch { 
+                            db.sessionDao().insertSession(session.copy(
+                                isPaused = paused, 
+                                isToyReleased = releaseToy,
+                                lastUpdateTimestamp = System.currentTimeMillis()
+                            )) 
+                        } 
+                    }
                 )
             }
         }
@@ -247,11 +255,15 @@ fun HomeScreen(
                 Column {
                     LazyColumn(modifier = Modifier.heightIn(max = 400.dp)) {
                         items(ticketsOfDay) { session ->
+                            val wasEndedEarly = session.remainingSeconds > 0 && session.isFinished
                             Column {
                                 Row(modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                                     Column(modifier = Modifier.weight(1f)) {
                                         Text(session.personName.uppercase(), color = textColor, fontWeight = FontWeight.Bold, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                         Text(session.toyName.uppercase(), color = secondaryColor, fontSize = 11.sp, fontWeight = if(isLightMode) FontWeight.Bold else FontWeight.Normal)
+                                        if (wasEndedEarly) {
+                                            Text("ENCERRADO ANTECIPADAMENTE", color = Color.Red, fontSize = 10.sp, fontWeight = FontWeight.Black)
+                                        }
                                     }
                                     Row {
                                         IconButton(onClick = { 
@@ -278,7 +290,10 @@ fun HomeScreen(
             text = {
                 LazyColumn {
                     items(toys) { toy ->
-                        val isOccupied = !toy.isAlwaysFree && activeSessionsFromDb.any { it.toyName == toy.name && !it.isFinished }
+                        // LÓGICA DE OCUPADO: Agora ignora sessões onde o brinquedo foi liberado durante a pausa
+                        val isOccupied = !toy.isAlwaysFree && activeSessionsFromDb.any { 
+                            it.toyName == toy.name && !it.isFinished && !it.isToyReleased 
+                        }
                         Row(modifier = Modifier.fillMaxWidth().clickable(enabled = !isOccupied) { selectedToy = toy; showToyPicker = false }.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                             Text(toy.name.uppercase(), color = if(isOccupied) Color.Red else textColor, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                             if(isOccupied) Text("OCUPADO", color = Color.Red, fontSize = 10.sp, modifier = Modifier.padding(end = 8.dp), fontWeight = FontWeight.Black)
@@ -305,10 +320,12 @@ fun ActiveTimerItemUI(
     onFinish: (PlaySession) -> Unit,
     onContinue: (PlaySession) -> Unit,
     onToyChanged: (PlaySession) -> Unit,
-    onPauseToggle: (Boolean) -> Unit
+    onPauseToggle: (Boolean, Boolean) -> Unit
 ) {
     var showOptions by remember { mutableStateOf(false) }
     var showSwapPicker by remember { mutableStateOf(false) }
+    var showPauseDialog by remember { mutableStateOf(false) }
+    
     val isExpired = session.remainingSeconds == 0L
     val currentVal = session.calculateCurrentProportionalValue()
     val highlightStyle = getHighlightStyle(isLightMode)
@@ -323,13 +340,32 @@ fun ActiveTimerItemUI(
                 Text(session.personName.uppercase(), color = if(session.isPaused) Color.Gray else IntenseGreen, fontWeight = FontWeight.Black, fontSize = 18.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, style = highlightStyle)
                 Text(session.toyName, color = if(isLightMode) Color.Black else Color.White, fontSize = 14.sp, fontWeight = if(isLightMode) FontWeight.Bold else FontWeight.Normal)
                 Text("VALOR: R$ %.2f".format(currentVal), color = if(session.isPaused) Color.Gray else if(isLightMode) Color.Black else Color.Yellow, fontWeight = FontWeight.ExtraBold, fontSize = 14.sp)
-                if(session.isPaused) Text("PAUSADO", color = Color.Red, fontSize = 10.sp, fontWeight = FontWeight.ExtraBold)
+                if(session.isPaused) Text(if(session.isToyReleased) "PAUSADO (BRINQUEDO LIBERADO)" else "PAUSADO", color = Color.Red, fontSize = 10.sp, fontWeight = FontWeight.ExtraBold)
             }
             Spacer(Modifier.width(8.dp))
             val min = session.remainingSeconds / 60
             val sec = session.remainingSeconds % 60
             Text("%02d:%02d".format(min, sec), color = if(session.isPaused) Color.Gray else if(isExpired) Color.Red else IntenseGreen, fontWeight = FontWeight.Black, fontSize = 28.sp, style = if(!isExpired && !session.isPaused) highlightStyle else TextStyle.Default)
         }
+    }
+
+    if (showPauseDialog) {
+        AlertDialog(
+            onDismissRequest = { showPauseDialog = false },
+            containerColor = if(isLightMode) Color.White else Color(0xFF1A1A1A),
+            title = { Text("LIBERAR BRINQUEDO?", color = IntenseGreen, fontWeight = FontWeight.Bold) },
+            text = { Text("Deseja liberar o brinquedo '${session.toyName}' para outra criança enquanto o tempo está pausado?", color = if(isLightMode) Color.Black else Color.White) },
+            confirmButton = {
+                TextButton(onClick = { onPauseToggle(true, true); showPauseDialog = false; showOptions = false }) {
+                    Text("SIM (LIBERAR)", color = IntenseGreen, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { onPauseToggle(true, false); showPauseDialog = false; showOptions = false }) {
+                    Text("NÃO (RESERVAR)", color = if(isLightMode) Color.Black else Color.Gray, fontWeight = FontWeight.Bold)
+                }
+            }
+        )
     }
 
     if (isExpired && !session.isFinished && !session.isPaused) {
@@ -378,7 +414,20 @@ fun ActiveTimerItemUI(
             text = { Text("Ações para ${session.personName}:", color = if(isLightMode) Color.Black else Color.White, fontWeight = if(isLightMode) FontWeight.Bold else FontWeight.Normal) },
             confirmButton = {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = { onPauseToggle(!session.isPaused); showOptions = false }, modifier = Modifier.weight(1f).height(50.dp), colors = ButtonDefaults.buttonColors(containerColor = IntenseGreen, contentColor = Color.Black), shape = RoundedCornerShape(25.dp), border = if(isLightMode) BorderStroke(1.dp, Color.Black.copy(alpha = 0.5f)) else null) {
+                    Button(
+                        onClick = { 
+                            if (session.isPaused) {
+                                onPauseToggle(false, false) // RETOMAR
+                                showOptions = false
+                            } else {
+                                showPauseDialog = true // VAI PARA A PERGUNTA DE LIBERAR
+                            }
+                        }, 
+                        modifier = Modifier.weight(1f).height(50.dp), 
+                        colors = ButtonDefaults.buttonColors(containerColor = IntenseGreen, contentColor = Color.Black), 
+                        shape = RoundedCornerShape(25.dp), 
+                        border = if(isLightMode) BorderStroke(1.dp, Color.Black.copy(alpha = 0.5f)) else null
+                    ) {
                         Text(if(session.isPaused) "RETOMAR" else "PAUSAR", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                     }
                     Button(onClick = { showSwapPicker = true; showOptions = false }, modifier = Modifier.weight(1f).height(50.dp), colors = ButtonDefaults.buttonColors(containerColor = Color.Blue), shape = RoundedCornerShape(25.dp), border = if(isLightMode) BorderStroke(1.dp, Color.Black.copy(alpha = 0.5f)) else null) {
@@ -402,7 +451,7 @@ fun ActiveTimerItemUI(
             text = {
                 LazyColumn {
                     items(allToys) { toy ->
-                        val isOccupied = !toy.isAlwaysFree && activeSessions.any { it.toyName == toy.name && !it.isFinished }
+                        val isOccupied = !toy.isAlwaysFree && activeSessions.any { it.toyName == toy.name && !it.isFinished && !it.isToyReleased }
                         Row(modifier = Modifier.fillMaxWidth().clickable(enabled = !isOccupied) {
                             val earned = (session.elapsedSecondsInCurrentCycle.toDouble() / (session.toyTimeMinutes * 60.0).coerceAtLeast(1.0)) * session.toyPrice
                             onToyChanged(session.copy(
@@ -411,7 +460,8 @@ fun ActiveTimerItemUI(
                                 toyTimeMinutes = toy.timeMinutes, 
                                 totalValueAccumulated = session.totalValueAccumulated + earned,
                                 elapsedSecondsInCurrentCycle = 0,
-                                remainingSeconds = (toy.timeMinutes * 60).toLong()
+                                remainingSeconds = (toy.timeMinutes * 60).toLong(),
+                                isToyReleased = false // AO TROCAR, VOLTA A ESTAR OCUPADO
                             ))
                             showSwapPicker = false
                         }.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
