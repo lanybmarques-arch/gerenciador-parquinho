@@ -23,7 +23,7 @@ import com.example.gerenciadordeparquinho.data.repository.AppDatabase
 import com.example.gerenciadordeparquinho.ui.theme.IntenseGreen
 import com.example.gerenciadordeparquinho.ui.theme.getHighlightStyle
 import com.example.gerenciadordeparquinho.utils.BluetoothPrinterHelper
-import kotlinx.coroutines.launch
+import androidx.compose.runtime.rememberCoroutineScope
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -35,6 +35,7 @@ fun ReportScreen(
     onSearchClick: () -> Unit = {},
     isLightMode: Boolean = false
 ) {
+    val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val db = remember { AppDatabase.getDatabase(context) }
     val today = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).format(Date())

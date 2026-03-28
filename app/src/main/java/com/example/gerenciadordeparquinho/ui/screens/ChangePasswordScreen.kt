@@ -34,7 +34,7 @@ fun ChangePasswordScreen(
     currentPass: String,
     currentUser: String,
     onConfirm: () -> Unit,
-    isLightMode: Boolean = false // PADRONIZAÇÃO CIRÚRGICA
+    isLightMode: Boolean = false
 ) {
     val context = LocalContext.current
     val db = remember { AppDatabase.getDatabase(context) }
@@ -45,7 +45,7 @@ fun ChangePasswordScreen(
     val highlightStyle = getHighlightStyle(isLightMode)
     val buttonBorder = if (isLightMode) BorderStroke(1.dp, Color.Black.copy(alpha = 0.5f)) else null
 
-    var user by remember { mutableStateOf(currentUser) }
+    var user by remember { mutableStateOf("") }
     var oldPass by remember { mutableStateOf("") }
     var newPass by remember { mutableStateOf("") }
     
@@ -74,7 +74,7 @@ fun ChangePasswordScreen(
         Text(
             text = "ALTERAR SENHA",
             color = IntenseGreen,
-            fontSize = 24.sp, // PADRONIZADO PARA 24SP
+            fontSize = 24.sp,
             fontWeight = FontWeight.ExtraBold,
             style = highlightStyle
         )
@@ -90,7 +90,7 @@ fun ChangePasswordScreen(
             shape = RoundedCornerShape(12.dp),
             singleLine = true,
             colors = fieldColors,
-            readOnly = true
+            readOnly = false
         )
         
         Spacer(Modifier.height(16.dp))
@@ -135,6 +135,10 @@ fun ChangePasswordScreen(
 
         Button(
             onClick = {
+                if (user.isBlank()) {
+                    Toast.makeText(context, "DIGITE O USUÁRIO", Toast.LENGTH_SHORT).show()
+                    return@Button
+                }
                 scope.launch {
                     val account = db.userDao().getUserByUsername(user)
                     if (account == null) {
