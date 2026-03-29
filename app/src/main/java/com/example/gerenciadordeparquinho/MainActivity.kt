@@ -1,9 +1,9 @@
 package com.example.gerenciadordeparquinho
 
-import android.app.NotificationChannel
-import android.app.NotificationManager
+import android.Manifest
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.ImageDecoder
 import android.net.Uri
@@ -37,6 +37,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import com.example.gerenciadordeparquinho.data.model.UserAccount
 import com.example.gerenciadordeparquinho.data.repository.AppDatabase
 import com.example.gerenciadordeparquinho.ui.screens.*
@@ -56,9 +57,28 @@ class MainActivity : ComponentActivity() {
             val savedTheme = remember { sharedPrefs.getString("theme_mode", AppThemeMode.DARK.name) }
             var appThemeMode by rememberSaveable { mutableStateOf(AppThemeMode.valueOf(savedTheme ?: AppThemeMode.DARK.name)) }
 
+            // PEDIR PERMISSÃO DE NOTIFICAÇÃO (ESSENCIAL PARA ANDROID 13+)
+            RequestNotificationPermission()
+
             BrincandoTheme(appThemeMode = appThemeMode) {
                 Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                     MainApp(themeMode = appThemeMode, onThemeChange = { appThemeMode = it; sharedPrefs.edit().putString("theme_mode", it.name).apply() })
+                }
+            }
+        }
+    }
+
+    @Composable
+    private fun RequestNotificationPermission() {
+        val context = LocalContext.current
+        val permissionLauncher = rememberLauncherForActivityResult(
+            ActivityResultContracts.RequestPermission()
+        ) { }
+
+        LaunchedEffect(Unit) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                    permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                 }
             }
         }
@@ -74,21 +94,60 @@ fun MainApp(themeMode: AppThemeMode, onThemeChange: (AppThemeMode) -> Unit) {
     var isLogged by rememberSaveable { mutableStateOf(false) }
     var isAdmin by rememberSaveable { mutableStateOf(false) }
     var loggedUser by remember { mutableStateOf<UserAccount?>(null) }
-    var isSoundEnabled by rememberSaveable { mutableStateOf(true) }
+    var isSoundEnabled by rememberSaveable { mutableStateOf(sharedPrefs.getBoolean("is_sound_enabled", true)) }
     
-    var loginTitle by rememberSaveable { mutableStateOf("BRINCANDO NA PRAÇA") }
-    var printerMessage by rememberSaveable { mutableStateOf("") }
+    // TÍTULO DO LOGIN (LAYOUT) - COM PERSISTÊNCIA
+    var loginTitle by remember { mutableStateOf(sharedPrefs.getString("login_title", "BRINCANDO NA PRAÇA") ?: "BRINCANDO NA PRAÇA") }
+    // MENSAGEM DA NOTA (CONFIGURAÇÕES) - COM PERSISTÊNCIA
+    var printerMessage by remember { mutableStateOf(sharedPrefs.getString("printer_message", "") ?: "") }
     
-    var titleColorArgb by remember { mutableIntStateOf(IntenseGreen.toArgb()) }
-    var hasOutline by rememberSaveable { mutableStateOf(false) }
-    var outlineColorArgb by remember { mutableIntStateOf(Color.Black.toArgb()) }
-    var isLogoLocked by rememberSaveable { mutableStateOf(false) }
-    var customLogoBase64 by rememberSaveable { mutableStateOf<String?>(null) }
-    var showLogo by rememberSaveable { mutableStateOf(false) }
-    var showPrinterMessage by rememberSaveable { mutableStateOf(false) }
+    var titleColorArgb by remember { mutableIntStateOf(sharedPrefs.getInt("title_color", IntenseGreen.toArgb())) }
+    var hasOutline by remember { mutableStateOf(sharedPrefs.getBoolean("has_outline", false)) }
+    var outlineColorArgb by remember { mutableIntStateOf(sharedPrefs.getInt("outline_color", Color.Black.toArgb())) }
+    var isLogoLocked by remember { mutableStateOf(sharedPrefs.getBoolean("is_logo_locked", false)) }
+    
+    // LOGO DO LOGIN (LAYOUT) - COM PERSISTÊNCIA
+    var loginLogoBase64 by remember { mutableStateOf(sharedPrefs.getString("login_logo_base64", null)) }
+    // LOGO DA IMPRESSORA (CONFIGURAÇÕES) - COM PERSISTÊNCIA
+    var printerLogoBase64 by remember { mutableStateOf(sharedPrefs.getString("printer_logo_base64", null)) }
+    
+    var showLogoInLogin by remember { mutableStateOf(sharedPrefs.getBoolean("show_logo_login", false)) }
+    var showPrinterLogo by remember { mutableStateOf(sharedPrefs.getBoolean("show_printer_logo", false)) }
+    var showPrinterMessage by remember { mutableStateOf(sharedPrefs.getBoolean("show_printer_message", false)) }
     
     var printerMac by rememberSaveable { mutableStateOf(sharedPrefs.getString("last_printer_mac", "") ?: "") }
     var printerSize by rememberSaveable { mutableStateOf(sharedPrefs.getString("last_printer_size", "58mm") ?: "58mm") }
+
+    // LAUNCHER PARA LOGO DA IMPRESSORA (CONFIGURAÇÕES)
+    val printerLogoLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        uri?.let {
+            try {
+                val bitmap = if (Build.VERSION.SDK_INT < 28) MediaStore.Images.Media.getBitmap(context.contentResolver, it)
+                else ImageDecoder.decodeBitmap(ImageDecoder.createSource(context.contentResolver, it))
+                val outputStream = ByteArrayOutputStream()
+                bitmap.compress(Bitmap.CompressFormat.PNG, 100, outputStream)
+                val base64 = Base64.encodeToString(outputStream.toByteArray(), Base64.DEFAULT)
+                printerLogoBase64 = base64
+                sharedPrefs.edit().putString("printer_logo_base64", base64).apply()
+            } catch (e: Exception) { e.printStackTrace() }
+        }
+    }
+
+    // LAUNCHER PARA LOGO DO LOGIN (LAYOUT)
+    val loginLogoLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        uri?.let {
+            try {
+                val bitmap = if (Build.VERSION.SDK_INT < 28) MediaStore.Images.Media.getBitmap(context.contentResolver, it)
+                else ImageDecoder.decodeBitmap(ImageDecoder.createSource(context.contentResolver, it))
+                val outputStream = ByteArrayOutputStream()
+                bitmap.compress(Bitmap.CompressFormat.PNG, 100, outputStream)
+                val base64 = Base64.encodeToString(outputStream.toByteArray(), Base64.DEFAULT)
+                loginLogoBase64 = base64
+                showLogoInLogin = true
+                sharedPrefs.edit().putString("login_logo_base64", base64).putBoolean("show_logo_login", true).apply()
+            } catch (e: Exception) { e.printStackTrace() }
+        }
+    }
 
     // INICIA/PARA O SERVIÇO DE MONITORAMENTO EM BACKGROUND
     LaunchedEffect(isLogged) {
@@ -101,19 +160,6 @@ fun MainApp(themeMode: AppThemeMode, onThemeChange: (AppThemeMode) -> Unit) {
             }
         } else {
             context.stopService(serviceIntent)
-        }
-    }
-
-    val logoLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        uri?.let {
-            try {
-                val bitmap = if (Build.VERSION.SDK_INT < 28) MediaStore.Images.Media.getBitmap(context.contentResolver, it)
-                else ImageDecoder.decodeBitmap(ImageDecoder.createSource(context.contentResolver, it))
-                val outputStream = ByteArrayOutputStream()
-                bitmap.compress(Bitmap.CompressFormat.PNG, 100, outputStream)
-                customLogoBase64 = Base64.encodeToString(outputStream.toByteArray(), Base64.DEFAULT)
-                showLogo = true
-            } catch (e: Exception) { e.printStackTrace() }
         }
     }
 
@@ -152,19 +198,87 @@ fun MainApp(themeMode: AppThemeMode, onThemeChange: (AppThemeMode) -> Unit) {
         Box(modifier = Modifier.padding(innerPadding).fillMaxSize()) {
             if (!isLogged) {
                 when (currentScreen) {
-                    "login" -> LoginScreen(appName = loginTitle, titleColor = Color(titleColorArgb), hasOutline = hasOutline, outlineColor = Color(outlineColorArgb), customLogo = customLogoBase64, onLoginSuccess = { acc -> loggedUser = acc; isLogged = true; isAdmin = acc.role == "ADMIN" || acc.username == "admin"; currentScreen = "home" }, onForgot = { currentScreen = "forgot" }, onChange = { currentScreen = "change" }, onRegister = { currentScreen = "register" }, storedPass = "102030aa", isLightMode = isLightMode)
-                    "register" -> RegisterScreen(customLogo = customLogoBase64, onBack = { currentScreen = "login" }, isLightMode = isLightMode)
+                    "login" -> LoginScreen(appName = loginTitle, titleColor = Color(titleColorArgb), hasOutline = hasOutline, outlineColor = Color(outlineColorArgb), customLogo = if (showLogoInLogin) loginLogoBase64 else null, onLoginSuccess = { acc -> loggedUser = acc; isLogged = true; isAdmin = acc.role == "ADMIN" || acc.username == "admin"; currentScreen = "home" }, onForgot = { currentScreen = "forgot" }, onChange = { currentScreen = "change" }, onRegister = { currentScreen = "register" }, storedPass = "102030aa", isLightMode = isLightMode)
+                    "register" -> RegisterScreen(customLogo = if (showLogoInLogin) loginLogoBase64 else null, onBack = { currentScreen = "login" }, isLightMode = isLightMode)
                     "forgot" -> ForgotPasswordScreen(onBack = { currentScreen = "login" }, isLightMode = isLightMode)
                     "change" -> ChangePasswordScreen(onBack = { currentScreen = "login" }, currentPass = "102030aa", currentUser = "admin", onConfirm = { currentScreen = "login" }, isLightMode = isLightMode)
                 }
             } else {
                 when (currentScreen) {
-                    "home" -> HomeScreen(appName = printerMessage, isSoundEnabled = isSoundEnabled, printerMac = printerMac, printerSize = printerSize, logoBase64 = if (showLogo) customLogoBase64 else null, isLightMode = isLightMode)
+                    "home" -> HomeScreen(appName = printerMessage, isSoundEnabled = isSoundEnabled, printerMac = printerMac, printerSize = printerSize, logoBase64 = if(showPrinterLogo) printerLogoBase64 else null, isLightMode = isLightMode)
                     "register_toy" -> RegisterToyScreen(isLightMode = isLightMode)
-                    "report" -> ReportScreen(printerMessage = printerMessage, printerMac = printerMac, printerSize = printerSize, logoBase64 = if (showLogo) customLogoBase64 else null, onSearchClick = { currentScreen = "search_report" }, isLightMode = isLightMode)
-                    "search_report" -> SearchReportScreen(printerMac = printerMac, printerSize = printerSize, logoBase64 = if (showLogo) customLogoBase64 else null, onBack = { currentScreen = "report" }, isLightMode = isLightMode)
-                    "settings" -> SettingsScreen(appName = printerMessage, onAppNameChange = { printerMessage = it }, showAppName = showPrinterMessage, onShowAppNameChange = { showPrinterMessage = it }, printerMac = printerMac, onPrinterChange = { printerMac = it; sharedPrefs.edit().putString("last_printer_mac", it).apply() }, printerSize = printerSize, onPrinterSizeChange = { printerSize = it; sharedPrefs.edit().putString("last_printer_size", it).apply() }, isSoundEnabled = isSoundEnabled, onSoundToggle = { isSoundEnabled = it }, showLogo = showLogo, onShowLogoChange = { showLogo = it }, logoBase64 = customLogoBase64, onSelectLogo = { logoLauncher.launch("image/*") }, onNavigateToLayout = { currentScreen = "layout" }, isLightMode = isLightMode)
-                    "layout" -> LayoutScreen(isAdmin = isAdmin, currentTheme = themeMode, onThemeChange = onThemeChange, appName = loginTitle, onAppNameChange = { loginTitle = it }, titleColor = Color(titleColorArgb), onTitleColorChange = { titleColorArgb = it.toArgb() }, hasOutline = hasOutline, onOutlineToggle = { hasOutline = it }, outlineColor = Color(outlineColorArgb), onOutlineColorChange = { outlineColorArgb = it.toArgb() }, isLogoLocked = isLogoLocked, onLogoLockToggle = { isLogoLocked = it }, onSelectLogo = { logoLauncher.launch("image/*") }, onBack = { currentScreen = "settings" }, isLightMode = isLightMode)
+                    "report" -> ReportScreen(printerMessage = printerMessage, printerMac = printerMac, printerSize = printerSize, logoBase64 = if(showPrinterLogo) printerLogoBase64 else null, onSearchClick = { currentScreen = "search_report" }, isLightMode = isLightMode)
+                    "search_report" -> SearchReportScreen(appName = printerMessage, printerMac = printerMac, printerSize = printerSize, logoBase64 = if(showPrinterLogo) printerLogoBase64 else null, onBack = { currentScreen = "report" }, isLightMode = isLightMode)
+                    "settings" -> SettingsScreen(
+                        appName = printerMessage, 
+                        onAppNameChange = { 
+                            printerMessage = it
+                            sharedPrefs.edit().putString("printer_message", it).apply()
+                        }, 
+                        showAppName = showPrinterMessage, 
+                        onShowAppNameChange = { 
+                            showPrinterMessage = it
+                            sharedPrefs.edit().putBoolean("show_printer_message", it).apply()
+                        }, 
+                        printerMac = printerMac, 
+                        onPrinterChange = { 
+                            printerMac = it
+                            sharedPrefs.edit().putString("last_printer_mac", it).apply()
+                        }, 
+                        printerSize = printerSize, 
+                        onPrinterSizeChange = { 
+                            printerSize = it
+                            sharedPrefs.edit().putString("last_printer_size", it).apply()
+                        }, 
+                        isSoundEnabled = isSoundEnabled, 
+                        onSoundToggle = { 
+                            isSoundEnabled = it
+                            sharedPrefs.edit().putBoolean("is_sound_enabled", it).apply()
+                        }, 
+                        showLogo = showPrinterLogo, 
+                        onShowLogoChange = { 
+                            showPrinterLogo = it
+                            sharedPrefs.edit().putBoolean("show_printer_logo", it).apply()
+                        }, 
+                        logoBase64 = printerLogoBase64, 
+                        onSelectLogo = { printerLogoLauncher.launch("image/*") }, 
+                        onNavigateToLayout = { currentScreen = "layout" }, 
+                        isLightMode = isLightMode
+                    )
+                    "layout" -> LayoutScreen(
+                        isAdmin = isAdmin, 
+                        currentTheme = themeMode, 
+                        onThemeChange = onThemeChange, 
+                        appName = loginTitle, 
+                        onAppNameChange = { 
+                            loginTitle = it
+                            sharedPrefs.edit().putString("login_title", it).apply()
+                        }, 
+                        titleColor = Color(titleColorArgb), 
+                        onTitleColorChange = { 
+                            titleColorArgb = it.toArgb()
+                            sharedPrefs.edit().putInt("title_color", it.toArgb()).apply()
+                        }, 
+                        hasOutline = hasOutline, 
+                        onOutlineToggle = { 
+                            hasOutline = it
+                            sharedPrefs.edit().putBoolean("has_outline", it).apply()
+                        }, 
+                        outlineColor = Color(outlineColorArgb), 
+                        onOutlineColorChange = { 
+                            outlineColorArgb = it.toArgb()
+                            sharedPrefs.edit().putInt("outline_color", it.toArgb()).apply()
+                        }, 
+                        isLogoLocked = isLogoLocked, 
+                        onLogoLockToggle = { 
+                            isLogoLocked = it
+                            sharedPrefs.edit().putBoolean("is_logo_locked", it).apply()
+                        }, 
+                        logoBase64 = loginLogoBase64, 
+                        onSelectLogo = { loginLogoLauncher.launch("image/*") }, 
+                        onBack = { currentScreen = "settings" }, 
+                        isLightMode = isLightMode
+                    )
                     "access" -> AccessManagementScreen(isLightMode = isLightMode)
                 }
             }

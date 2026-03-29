@@ -1,6 +1,9 @@
 package com.example.gerenciadordeparquinho.ui.screens
 
+import android.graphics.BitmapFactory
+import android.util.Base64
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -18,6 +21,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -42,9 +47,10 @@ fun LayoutScreen(
     onOutlineColorChange: (Color) -> Unit,
     isLogoLocked: Boolean,
     onLogoLockToggle: (Boolean) -> Unit,
+    logoBase64: String?, // NOVO PARÂMETRO PARA PRÉVIA
     onSelectLogo: () -> Unit,
     onBack: () -> Unit,
-    isLightMode: Boolean = false // SOLUÇÃO DEFINITIVA COM VALOR PADRÃO
+    isLightMode: Boolean = false
 ) {
     val scrollState = rememberScrollState()
     val highlightStyle = getHighlightStyle(isLightMode)
@@ -90,6 +96,38 @@ fun LayoutScreen(
             verticalArrangement = Arrangement.spacedBy(24.dp)
         ) {
             LayoutSection(title = "IDENTIDADE DA MARCA", isLightMode = isLightMode) {
+                // ÁREA DE PRÉVIA DA LOGO DO LOGIN
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(120.dp)
+                        .background(if(isLightMode) Color(0xFFF0F0F0) else Color(0xFF1A1A1A), RoundedCornerShape(12.dp))
+                        .border(1.dp, if(isLightMode) Color.Black else IntenseGreen.copy(alpha = 0.3f), RoundedCornerShape(12.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    val bitmap = remember(logoBase64) {
+                        if (logoBase64 != null) {
+                            try {
+                                val bytes = Base64.decode(logoBase64, Base64.DEFAULT)
+                                BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                            } catch (e: Exception) { null }
+                        } else null
+                    }
+
+                    if (bitmap != null) {
+                        Image(
+                            bitmap = bitmap.asImageBitmap(),
+                            contentDescription = "Preview",
+                            modifier = Modifier.fillMaxHeight().padding(8.dp),
+                            contentScale = ContentScale.Fit
+                        )
+                    } else {
+                        Icon(Icons.Default.Image, null, tint = Color.Gray, modifier = Modifier.size(48.dp))
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
                 Button(
                     onClick = onSelectLogo,
                     enabled = isAdmin || !isLogoLocked,

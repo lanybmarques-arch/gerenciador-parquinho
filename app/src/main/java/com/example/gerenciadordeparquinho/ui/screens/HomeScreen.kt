@@ -65,36 +65,17 @@ fun HomeScreen(
     var selectedToy by remember { mutableStateOf<Toy?>(null) }
     var showToyPicker by remember { mutableStateOf(false) }
     var showTicketsDialog by remember { mutableStateOf(false) }
+    var showDuplicateNameDialog by remember { mutableStateOf(false) }
     
     val toys by db.toyDao().getAllToys().collectAsState(initial = emptyList())
     val activeSessionsFromDb by db.sessionDao().getActiveSessions().collectAsState(initial = emptyList())
     val mediaPlayer = remember { MediaPlayer.create(context, R.raw.admin_alert) }
 
+    // ALERTA SONORO
     LaunchedEffect(activeSessionsFromDb) {
-        while (true) {
-            delay(1000)
-            val now = System.currentTimeMillis()
-            activeSessionsFromDb.forEach { session ->
-                if (!session.isFinished && !session.isPaused) {
-                    if (session.remainingSeconds > 0) {
-                        val diffSeconds = (now - session.lastUpdateTimestamp) / 1000
-                        if (diffSeconds >= 1) {
-                            val newRemaining = (session.remainingSeconds - diffSeconds).coerceAtLeast(0L)
-                            db.sessionDao().insertSession(session.copy(
-                                remainingSeconds = newRemaining,
-                                elapsedSecondsInCurrentCycle = session.elapsedSecondsInCurrentCycle + diffSeconds,
-                                lastUpdateTimestamp = now
-                            ))
-                        }
-                    } else {
-                        if (isSoundEnabled) {
-                            try { if (mediaPlayer?.isPlaying == false) mediaPlayer.start() } catch (e: Exception) {}
-                        }
-                        db.sessionDao().insertSession(session.copy(lastUpdateTimestamp = now))
-                    }
-                } else if (session.isPaused) {
-                    db.sessionDao().insertSession(session.copy(lastUpdateTimestamp = now))
-                }
+        activeSessionsFromDb.forEach { session ->
+            if (session.remainingSeconds <= 0 && !session.isFinished && !session.isPaused && isSoundEnabled) {
+                try { if (mediaPlayer?.isPlaying == false) mediaPlayer.start() } catch (e: Exception) {}
             }
         }
     }
@@ -146,28 +127,28 @@ fun HomeScreen(
         Spacer(modifier = Modifier.height(16.dp))
         Button(
             onClick = {
-                val t = selectedToy!!
-                val newSession = PlaySession(
-                    personName = childName,
-                    toyName = t.name,
-                    toyPrice = t.price,
-                    toyTimeMinutes = t.timeMinutes,
-                    remainingSeconds = (t.timeMinutes * 60).toLong(),
-                    lastUpdateTimestamp = System.currentTimeMillis()
-                )
-                scope.launch { 
-                    db.sessionDao().insertSession(newSession)
-                    if (printTicketAutomatic && printerMac.isNotEmpty()) {
-                        BluetoothPrinterHelper.printEntranceTicket(
-                            macAddress = printerMac, 
-                            session = newSession, 
-                            size = printerSize, 
-                            logoBase64 = logoBase64,
-                            customMessage = appName
-                        )
+                // VERIFICA SE JÁ EXISTE UM CRONÔMETRO COM O MESMO NOME
+                val exists = activeSessionsFromDb.any { it.personName.equals(childName.trim(), ignoreCase = true) }
+                if (exists) {
+                    showDuplicateNameDialog = true
+                } else {
+                    val t = selectedToy!!
+                    val newSession = PlaySession(
+                        personName = childName,
+                        toyName = t.name,
+                        toyPrice = t.price,
+                        toyTimeMinutes = t.timeMinutes,
+                        remainingSeconds = (t.timeMinutes * 60).toLong(),
+                        lastUpdateTimestamp = System.currentTimeMillis()
+                    )
+                    scope.launch { 
+                        db.sessionDao().insertSession(newSession)
+                        if (printTicketAutomatic && printerMac.isNotEmpty()) {
+                            BluetoothPrinterHelper.printEntranceTicket(printerMac, newSession, printerSize, logoBase64, appName)
+                        }
                     }
+                    childName = ""; selectedToy = null
                 }
-                childName = ""; selectedToy = null
             },
             enabled = childName.isNotBlank() && selectedToy != null,
             modifier = Modifier.fillMaxWidth().height(54.dp),
@@ -227,6 +208,20 @@ fun HomeScreen(
                 )
             }
         }
+    }
+
+    if (showDuplicateNameDialog) {
+        AlertDialog(
+            onDismissRequest = { showDuplicateNameDialog = false },
+            containerColor = if(isLightMode) Color.White else Color(0xFF1A1A1A),
+            title = { Text("NOME EM USO!", color = Color.Red, fontWeight = FontWeight.Bold) },
+            text = { Text("Já existe um tempo aberto para '$childName'. Por favor, adicione um complemento.", color = if(isLightMode) Color.Black else Color.White) },
+            confirmButton = {
+                TextButton(onClick = { showDuplicateNameDialog = false }) {
+                    Text("ENTENDI", color = IntenseGreen, fontWeight = FontWeight.Bold)
+                }
+            }
+        )
     }
 
     if (showTicketsDialog) {
@@ -290,7 +285,6 @@ fun HomeScreen(
             text = {
                 LazyColumn {
                     items(toys) { toy ->
-                        // LÓGICA DE OCUPADO: Agora ignora sessões onde o brinquedo foi liberado durante a pausa
                         val isOccupied = !toy.isAlwaysFree && activeSessionsFromDb.any { 
                             it.toyName == toy.name && !it.isFinished && !it.isToyReleased 
                         }
@@ -325,6 +319,7 @@ fun ActiveTimerItemUI(
     var showOptions by remember { mutableStateOf(false) }
     var showSwapPicker by remember { mutableStateOf(false) }
     var showPauseDialog by remember { mutableStateOf(false) }
+    var showResetDialog by remember { mutableStateOf<Toy?>(null) }
     
     val isExpired = session.remainingSeconds == 0L
     val currentVal = session.calculateCurrentProportionalValue()
@@ -363,6 +358,48 @@ fun ActiveTimerItemUI(
             dismissButton = {
                 TextButton(onClick = { onPauseToggle(true, false); showPauseDialog = false; showOptions = false }) {
                     Text("NÃO (RESERVAR)", color = if(isLightMode) Color.Black else Color.Gray, fontWeight = FontWeight.Bold)
+                }
+            }
+        )
+    }
+
+    if (showResetDialog != null) {
+        val newToy = showResetDialog!!
+        AlertDialog(
+            onDismissRequest = { showResetDialog = null },
+            containerColor = if(isLightMode) Color.White else Color(0xFF1A1A1A),
+            title = { Text("REINICIAR CRONÔMETRO?", color = IntenseGreen, fontWeight = FontWeight.Bold) },
+            text = { Text("Deseja reiniciar o tempo para os ${newToy.timeMinutes} minutos originais do novo brinquedo?", color = if(isLightMode) Color.Black else Color.White) },
+            confirmButton = {
+                TextButton(onClick = {
+                    val earned = (session.elapsedSecondsInCurrentCycle.toDouble() / (session.toyTimeMinutes * 60.0).coerceAtLeast(1.0)) * session.toyPrice
+                    onToyChanged(session.copy(
+                        toyName = newToy.name, 
+                        toyPrice = newToy.price, 
+                        toyTimeMinutes = newToy.timeMinutes, 
+                        totalValueAccumulated = session.totalValueAccumulated + earned,
+                        elapsedSecondsInCurrentCycle = 0,
+                        remainingSeconds = (newToy.timeMinutes * 60).toLong(),
+                        isToyReleased = false
+                    ))
+                    showResetDialog = null
+                }) {
+                    Text("SIM (REINICIAR)", color = IntenseGreen, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    val earned = (session.elapsedSecondsInCurrentCycle.toDouble() / (session.toyTimeMinutes * 60.0).coerceAtLeast(1.0)) * session.toyPrice
+                    onToyChanged(session.copy(
+                        toyName = newToy.name, 
+                        toyPrice = newToy.price, 
+                        toyTimeMinutes = newToy.timeMinutes, 
+                        totalValueAccumulated = session.totalValueAccumulated + earned,
+                        isToyReleased = false
+                    ))
+                    showResetDialog = null
+                }) {
+                    Text("NÃO (MANTER)", color = if(isLightMode) Color.Black else Color.Gray, fontWeight = FontWeight.Bold)
                 }
             }
         )
@@ -417,10 +454,10 @@ fun ActiveTimerItemUI(
                     Button(
                         onClick = { 
                             if (session.isPaused) {
-                                onPauseToggle(false, false) // RETOMAR
+                                onPauseToggle(false, false)
                                 showOptions = false
                             } else {
-                                showPauseDialog = true // VAI PARA A PERGUNTA DE LIBERAR
+                                showPauseDialog = true
                             }
                         }, 
                         modifier = Modifier.weight(1f).height(50.dp), 
@@ -453,16 +490,7 @@ fun ActiveTimerItemUI(
                     items(allToys) { toy ->
                         val isOccupied = !toy.isAlwaysFree && activeSessions.any { it.toyName == toy.name && !it.isFinished && !it.isToyReleased }
                         Row(modifier = Modifier.fillMaxWidth().clickable(enabled = !isOccupied) {
-                            val earned = (session.elapsedSecondsInCurrentCycle.toDouble() / (session.toyTimeMinutes * 60.0).coerceAtLeast(1.0)) * session.toyPrice
-                            onToyChanged(session.copy(
-                                toyName = toy.name, 
-                                toyPrice = toy.price, 
-                                toyTimeMinutes = toy.timeMinutes, 
-                                totalValueAccumulated = session.totalValueAccumulated + earned,
-                                elapsedSecondsInCurrentCycle = 0,
-                                remainingSeconds = (toy.timeMinutes * 60).toLong(),
-                                isToyReleased = false // AO TROCAR, VOLTA A ESTAR OCUPADO
-                            ))
+                            showResetDialog = toy
                             showSwapPicker = false
                         }.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                             Text(toy.name.uppercase(), color = if(isOccupied) Color.Red else if(isLightMode) Color.Black else Color.White, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Bold); 

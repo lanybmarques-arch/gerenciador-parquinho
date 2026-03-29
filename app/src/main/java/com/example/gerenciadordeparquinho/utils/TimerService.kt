@@ -20,7 +20,7 @@ class TimerService : Service() {
         if (!isRunning) {
             isRunning = true
             startForegroundService()
-            monitorTimers()
+            monitorAndDecrementTimers()
         }
         return START_STICKY
     }
@@ -35,23 +35,51 @@ class TimerService : Service() {
 
         val notification = NotificationCompat.Builder(this, channelId)
             .setContentTitle("Gerenciador de Parquinho")
-            .setContentText("Monitorando cronômetros ativos...")
+            .setContentText("Monitorando tempos em tempo real...")
             .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setOngoing(true)
             .build()
 
         startForeground(1, notification)
     }
 
-    private fun monitorTimers() {
+    private fun monitorAndDecrementTimers() {
         serviceScope.launch {
             val db = AppDatabase.getDatabase(this@TimerService)
             while (isRunning) {
-                delay(2000)
+                delay(1000)
+                val now = System.currentTimeMillis()
                 val activeSessions = db.sessionDao().getActiveSessionsList()
+                
                 activeSessions.forEach { session ->
-                    if (session.remainingSeconds <= 0 && !session.notified && !session.isFinished && !session.isPaused) {
-                        showAlertNotification(session.personName, session.toyName)
-                        db.sessionDao().insertSession(session.copy(notified = true))
+                    if (!session.isFinished && !session.isPaused) {
+                        if (session.remainingSeconds > 0) {
+                            // LOGICA DE DECREMENTO EM BACKGROUND
+                            val diffSeconds = (now - session.lastUpdateTimestamp) / 1000
+                            if (diffSeconds >= 1) {
+                                val newRemaining = (session.remainingSeconds - diffSeconds).coerceAtLeast(0L)
+                                val updatedSession = session.copy(
+                                    remainingSeconds = newRemaining,
+                                    elapsedSecondsInCurrentCycle = session.elapsedSecondsInCurrentCycle + diffSeconds,
+                                    lastUpdateTimestamp = now
+                                )
+                                
+                                // Se acabou de chegar a zero agora, notifica
+                                if (newRemaining <= 0 && !session.notified) {
+                                    showAlertNotification(session.personName, session.toyName)
+                                    db.sessionDao().insertSession(updatedSession.copy(notified = true))
+                                } else {
+                                    db.sessionDao().insertSession(updatedSession)
+                                }
+                            }
+                        } else if (!session.notified) {
+                            // Caso já estivesse em zero mas não notificado
+                            showAlertNotification(session.personName, session.toyName)
+                            db.sessionDao().insertSession(session.copy(notified = true, lastUpdateTimestamp = now))
+                        }
+                    } else {
+                        // Apenas atualiza o timestamp para manter a consistência se pausado
+                        db.sessionDao().insertSession(session.copy(lastUpdateTimestamp = now))
                     }
                 }
             }
@@ -59,32 +87,36 @@ class TimerService : Service() {
     }
 
     private fun showAlertNotification(name: String, toy: String) {
-        val channelId = "TIMER_ALERT_CHANNEL"
+        val channelId = "TIMER_CHANNEL"
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(channelId, "Alertas de Tempo", NotificationManager.IMPORTANCE_HIGH).apply {
                 enableVibration(true)
-                vibrationPattern = longArrayOf(0, 500, 200, 500)
+                vibrationPattern = longArrayOf(0, 800, 200, 800) // Vibração mais forte
+                setBypassDnd(true) // Tenta pular o não perturbe se permitido
             }
             manager.createNotificationChannel(channel)
         }
 
-        val intent = Intent(this, MainActivity::class.java)
+        val intent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+        }
         val pendingIntent = PendingIntent.getActivity(this, 0, intent, PendingIntent.FLAG_IMMUTABLE)
 
-        val notification = NotificationCompat.Builder(this, channelId)
+        val builder = NotificationCompat.Builder(this, channelId)
+            .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
             .setContentTitle("TEMPO ESGOTADO!")
-            .setContentText("Criança: $name | Brinquedo: $toy")
-            .setSmallIcon(android.R.drawable.ic_dialog_alert)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setContentText("O TEMPO DE ${name.uppercase()} NO ${toy.uppercase()} ACABOU!")
+            .setPriority(NotificationCompat.PRIORITY_MAX)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
-            .setVibrate(longArrayOf(0, 500, 200, 500))
+            .setVibrate(longArrayOf(0, 800, 200, 800))
             .setContentIntent(pendingIntent)
+            .setFullScreenIntent(pendingIntent, true) // Força o pop-up no topo
             .setAutoCancel(true)
-            .build()
+            .setDefaults(NotificationCompat.DEFAULT_ALL)
 
-        manager.notify(System.currentTimeMillis().toInt(), notification)
+        manager.notify(System.currentTimeMillis().toInt(), builder.build())
     }
 
     override fun onDestroy() {

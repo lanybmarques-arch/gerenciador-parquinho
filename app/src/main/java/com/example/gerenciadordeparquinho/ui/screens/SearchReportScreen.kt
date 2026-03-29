@@ -35,11 +35,12 @@ import java.util.*
 
 @Composable
 fun SearchReportScreen(
+    appName: String = "", // Mensagem customizada das configurações
     printerMac: String = "",
     printerSize: String = "58mm",
     logoBase64: String? = null,
     onBack: () -> Unit,
-    isLightMode: Boolean = false // PADRONIZAÇÃO CIRÚRGICA
+    isLightMode: Boolean = false
 ) {
     val context = LocalContext.current
     val db = remember { AppDatabase.getDatabase(context) }
@@ -55,11 +56,33 @@ fun SearchReportScreen(
     
     val allSessionsByDate by db.sessionDao().getSessionsByDate(selectedDate).collectAsState(initial = emptyList())
     
-    val filteredSessions = remember(allSessionsByDate, childName) {
-        allSessionsByDate.filter { it.personName.contains(childName, ignoreCase = true) }
+    // LISTA ABAIXO: Mostra todos que começam com o nome digitado (Referência)
+    val filteredSessionsForList = remember(allSessionsByDate, childName) {
+        if (childName.isBlank()) {
+            allSessionsByDate
+        } else {
+            allSessionsByDate.filter { 
+                it.personName.startsWith(childName, ignoreCase = true)
+            }
+        }
     }
     
-    val totalGeral = filteredSessions.sumOf { it.totalValueAccumulated }
+    // TOTAL GERAL (RESUMO PARA): Calcula apenas o valor do nome EXATO digitado
+    val totalGeralExato = remember(allSessionsByDate, childName) {
+        if (childName.isBlank()) {
+            allSessionsByDate.sumOf { it.totalValueAccumulated }
+        } else {
+            allSessionsByDate.filter { 
+                it.personName.equals(childName.trim(), ignoreCase = true) 
+            }.sumOf { it.totalValueAccumulated }
+        }
+    }
+
+    // LISTA EXATA PARA IMPRESSÃO DO RESUMO
+    val sessionsForPrint = remember(allSessionsByDate, childName) {
+        if (childName.isBlank()) allSessionsByDate 
+        else allSessionsByDate.filter { it.personName.equals(childName.trim(), ignoreCase = true) }
+    }
 
     Column(
         modifier = Modifier
@@ -76,7 +99,7 @@ fun SearchReportScreen(
             Text(
                 text = "BUSCAR POR CRIANÇA",
                 color = IntenseGreen,
-                fontSize = 24.sp, // PADRONIZADO 24SP
+                fontSize = 24.sp,
                 fontWeight = FontWeight.ExtraBold,
                 style = highlightStyle
             )
@@ -114,7 +137,18 @@ fun SearchReportScreen(
             IconButton(
                 onClick = {
                     if (printerMac.isNotEmpty()) {
-                        Toast.makeText(context, "Imprimindo resumo...", Toast.LENGTH_SHORT).show()
+                        BluetoothPrinterHelper.printChildSummary(
+                            macAddress = printerMac,
+                            childName = if(childName.isEmpty()) "TODOS" else childName,
+                            history = sessionsForPrint,
+                            total = totalGeralExato,
+                            size = printerSize,
+                            logoBase64 = logoBase64,
+                            customMessage = appName,
+                            onResult = { success, msg -> 
+                                Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                            }
+                        )
                     } else {
                         Toast.makeText(context, "Selecione uma impressora!", Toast.LENGTH_SHORT).show()
                     }
@@ -163,7 +197,7 @@ fun SearchReportScreen(
                     style = highlightStyle
                 )
                 Text(
-                    text = "TOTAL GERAL: R$ %.2f".format(totalGeral),
+                    text = "TOTAL GERAL: R$ %.2f".format(totalGeralExato),
                     color = textColor,
                     fontSize = 24.sp,
                     fontWeight = FontWeight.Black
@@ -174,7 +208,7 @@ fun SearchReportScreen(
         Spacer(modifier = Modifier.height(24.dp))
 
         LazyColumn(modifier = Modifier.weight(1f)) {
-            items(filteredSessions) { session ->
+            items(filteredSessionsForList) { session ->
                 SearchItemUI(
                     session = session,
                     textColor = textColor,
@@ -182,9 +216,9 @@ fun SearchReportScreen(
                     isLightMode = isLightMode,
                     onPrint = {
                         if (printerMac.isNotEmpty()) {
-                            BluetoothPrinterHelper.printEntranceTicket(printerMac, session, printerSize, logoBase64)
+                            BluetoothPrinterHelper.printEntranceTicket(printerMac, session, printerSize, logoBase64, appName)
                         } else {
-                            Toast.makeText(context, "Selecione uma impressora!", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, "Configure a impressora!", Toast.LENGTH_SHORT).show()
                         }
                     }
                 )

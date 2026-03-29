@@ -5,6 +5,8 @@ import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothSocket
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Canvas
+import android.graphics.Paint
 import android.os.Handler
 import android.os.Looper
 import android.util.Base64
@@ -21,9 +23,14 @@ object BluetoothPrinterHelper {
     private val CHARSET_16 = byteArrayOf(0x1B, 0x74, 0x10)
     private val BOLD_ON = byteArrayOf(0x1B, 0x45, 0x01)
     private val BOLD_OFF = byteArrayOf(0x1B, 0x45, 0x00)
-    private val BIG_FONT = byteArrayOf(0x1D, 0x21, 0x11) // 2x2
-    private val HUGE_FONT = byteArrayOf(0x1D, 0x21, 0x22) // 3x3
-    private val NORMAL_FONT = byteArrayOf(0x1D, 0x21, 0x00)
+    private val DOUBLE_STRIKE_ON = byteArrayOf(0x1B, 0x47, 0x01) // Negrito extra
+    private val DOUBLE_STRIKE_OFF = byteArrayOf(0x1B, 0x47, 0x00)
+    
+    private val NORMAL_FONT = byteArrayOf(0x1D, 0x21, 0x00) // 1x1
+    private val TALL_FONT = byteArrayOf(0x1D, 0x21, 0x01)   // 1x2 (Dobra altura)
+    private val BIG_FONT = byteArrayOf(0x1D, 0x21, 0x11)    // 2x2 (Dobra largura e altura)
+    private val HUGE_FONT = byteArrayOf(0x1D, 0x21, 0x22)   // 3x3 (Triplica largura e altura)
+    
     private val CENTER = byteArrayOf(0x1B, 0x61, 0x01)
     private val LEFT = byteArrayOf(0x1B, 0x61, 0x00)
 
@@ -38,23 +45,29 @@ object BluetoothPrinterHelper {
         } catch (e: Exception) { null }
     }
 
-    private fun printBitmap(out: OutputStream, bitmap: Bitmap, size: String) {
+    private fun printBitmap(out: OutputStream, originalBitmap: Bitmap, size: String) {
         val width = if (size == "58mm") 384 else 576
-        val ratio = width.toFloat() / bitmap.width
-        val height = (bitmap.height * ratio).toInt()
+        val ratio = width.toFloat() / originalBitmap.width
+        val height = (originalBitmap.height * ratio).toInt()
 
-        val scaled = Bitmap.createScaledBitmap(bitmap, width, height, true)
-        val pixels = IntArray(scaled.width * scaled.height)
-        scaled.getPixels(pixels, 0, scaled.width, 0, 0, scaled.width, scaled.height)
+        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        canvas.drawColor(android.graphics.Color.WHITE) 
 
-        val byteWidth = scaled.width / 8
-        out.write(byteArrayOf(0x1D, 0x76, 0x30, 0x00, byteWidth.toByte(), 0x00, (scaled.height % 256).toByte(), (scaled.height / 256).toByte()))
+        val scaledSrc = Bitmap.createScaledBitmap(originalBitmap, width, height, true)
+        canvas.drawBitmap(scaledSrc, 0f, 0f, null)
 
-        for (y in 0 until scaled.height) {
+        val pixels = IntArray(bitmap.width * bitmap.height)
+        bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
+
+        val byteWidth = bitmap.width / 8
+        out.write(byteArrayOf(0x1D, 0x76, 0x30, 0x00, byteWidth.toByte(), 0x00, (bitmap.height % 256).toByte(), (bitmap.height / 256).toByte()))
+
+        for (y in 0 until bitmap.height) {
             for (x in 0 until byteWidth) {
                 var byte = 0
                 for (bit in 0 until 8) {
-                    val px = pixels[y * scaled.width + (x * 8 + bit)]
+                    val px = pixels[y * bitmap.width + (x * 8 + bit)]
                     val gray = ((px shr 16 and 0xFF) + (px shr 8 and 0xFF) + (px and 0xFF)) / 3
                     if (gray < 128) byte = byte or (1 shl (7 - bit))
                 }
@@ -96,32 +109,32 @@ object BluetoothPrinterHelper {
                     }
                 }
 
-                // IMPRESSÃO DA MENSAGEM CUSTOMIZADA (AJUSTADA PARA BIG_FONT 2x2 PARA CABER NA MARGEM)
+                // MENSAGEM CUSTOMIZADA (2x2)
                 if (!customMessage.isNullOrBlank()) {
                     out.write(CENTER)
                     out.write(BOLD_ON)
-                    out.write(BIG_FONT) // REDUZIDO DE HUGE PARA BIG PARA NÃO SAIR DA MARGEM
+                    out.write(DOUBLE_STRIKE_ON)
+                    out.write(BIG_FONT)
                     out.write("$customMessage\n\n".toByteArray(Charsets.ISO_8859_1))
-                    out.write(BOLD_OFF)
-                    out.write(NORMAL_FONT)
                 }
 
+                // TÍTULO (3x3 - BEM GRANDE)
                 out.write(BOLD_ON)
-                out.write(BIG_FONT) // AJUSTADO TAMBÉM O TÍTULO PARA 2x2
-                
+                out.write(HUGE_FONT)
                 val title = if (session.isFinished) "TICKET\nDE\nSAIDA" else "TICKET\nDE\nENTRADA"
                 out.write("$title\n\n".toByteArray(Charsets.ISO_8859_1))
 
-                out.write(NORMAL_FONT)
+                // DETALHES (1x2 - MAIS ALTOS E EM NEGRITO EXTRA)
+                out.write(TALL_FONT)
+                out.write(BOLD_ON)
+                out.write(DOUBLE_STRIKE_ON)
                 out.write("--------------------------------\n".toByteArray())
                 out.write(LEFT)
-                out.write(BOLD_ON)
                 out.write("CLIENTE: ${session.personName.uppercase()}\n".toByteArray(Charsets.ISO_8859_1))
                 out.write("BRINQUEDO: ${session.toyName.uppercase()}\n".toByteArray(Charsets.ISO_8859_1))
                 
                 val valToPrint = if (session.isFinished) session.totalValueAccumulated else session.toyPrice
                 out.write("VALOR: R$ %.2f\n".format(valToPrint).toByteArray(Charsets.ISO_8859_1))
-                
                 out.write("INICIO: ${session.startTime}\n".toByteArray(Charsets.ISO_8859_1))
 
                 val endTimeToShow = if (!session.endTime.isNullOrEmpty()) {
@@ -138,10 +151,91 @@ object BluetoothPrinterHelper {
                 out.write("FIM: $endTimeToShow\n".toByteArray(Charsets.ISO_8859_1))
 
                 out.write(BOLD_OFF)
+                out.write(DOUBLE_STRIKE_OFF)
+                out.write(NORMAL_FONT)
                 out.write(CENTER)
                 out.write("\n--------------------------------\n\n\n\n\n".toByteArray())
                 out.flush()
                 runOnMainThread { onResult(true, "Impresso com sucesso!") }
+            } catch (e: Exception) {
+                runOnMainThread { onResult(false, "Erro: ${e.message}") }
+            } finally {
+                try { socket?.close() } catch (e: Exception) {}
+            }
+        }.start()
+    }
+
+    @SuppressLint("MissingPermission")
+    fun printChildSummary(
+        macAddress: String,
+        childName: String,
+        history: List<PlaySession>,
+        total: Double,
+        size: String = "58mm",
+        logoBase64: String? = null,
+        customMessage: String? = null,
+        onResult: (Boolean, String) -> Unit = { _, _ -> }
+    ) {
+        if (macAddress.isEmpty()) return
+        Thread {
+            var socket: BluetoothSocket? = null
+            try {
+                val adapter = BluetoothAdapter.getDefaultAdapter() ?: throw Exception("Bluetooth não disponível")
+                val device = adapter.getRemoteDevice(macAddress)
+                socket = device.createRfcommSocketToServiceRecord(PRINTER_UUID)
+                socket.connect()
+                val out = socket.outputStream
+
+                out.write(RESET)
+                out.write(CHARSET_16)
+                out.write(CENTER)
+
+                logoBase64?.let { base64 ->
+                    decodeBitmap(base64)?.let { bmp ->
+                        printBitmap(out, bmp, size)
+                        out.write("\n\n".toByteArray())
+                    }
+                }
+
+                if (!customMessage.isNullOrBlank()) {
+                    out.write(CENTER)
+                    out.write(BOLD_ON)
+                    out.write(BIG_FONT)
+                    out.write("$customMessage\n\n".toByteArray(Charsets.ISO_8859_1))
+                }
+
+                out.write(BOLD_ON)
+                out.write(BIG_FONT)
+                out.write("RESUMO PARA:\n${childName.uppercase()}\n".toByteArray(Charsets.ISO_8859_1))
+                out.write(NORMAL_FONT)
+                val dateStr = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).format(Date())
+                out.write("DATA: $dateStr\n\n".toByteArray(Charsets.ISO_8859_1))
+
+                out.write(LEFT)
+                out.write("--------------------------------\n".toByteArray())
+
+                history.forEach { session ->
+                    out.write(TALL_FONT)
+                    out.write(BOLD_ON)
+                    out.write("BRINQUEDO: ${session.toyName.uppercase()}\n".toByteArray(Charsets.ISO_8859_1))
+                    out.write(BOLD_OFF)
+                    out.write("INI: ${session.startTime} | FIM: ${session.endTime ?: "--:--:--"}\n".toByteArray(Charsets.ISO_8859_1))
+                    out.write("VALOR: R$ %.2f\n".format(session.totalValueAccumulated).toByteArray(Charsets.ISO_8859_1))
+                    out.write(NORMAL_FONT)
+                    out.write("--------------------------------\n".toByteArray())
+                }
+
+                out.write("\n".toByteArray())
+                out.write(CENTER)
+                out.write(BOLD_ON)
+                out.write(BIG_FONT)
+                out.write("TOTAL GERAL: R$ %.2f\n".format(total).toByteArray(Charsets.ISO_8859_1))
+                
+                out.write(NORMAL_FONT)
+                out.write(BOLD_OFF)
+                out.write("\n--------------------------------\n\n\n\n\n".toByteArray())
+                out.flush()
+                runOnMainThread { onResult(true, "Resumo impresso!") }
             } catch (e: Exception) {
                 runOnMainThread { onResult(false, "Erro: ${e.message}") }
             } finally {
@@ -181,14 +275,11 @@ object BluetoothPrinterHelper {
                     }
                 }
 
-                // IMPRESSÃO DA MENSAGEM CUSTOMIZADA NO RELATÓRIO (AJUSTADA PARA BIG_FONT 2x2)
                 if (!customMessage.isNullOrBlank()) {
                     out.write(CENTER)
                     out.write(BOLD_ON)
-                    out.write(BIG_FONT) // REDUZIDO PARA 2x2 PARA CABER NA MARGEM
+                    out.write(BIG_FONT)
                     out.write("$customMessage\n\n".toByteArray(Charsets.ISO_8859_1))
-                    out.write(BOLD_OFF)
-                    out.write(NORMAL_FONT)
                 }
 
                 out.write(BOLD_ON)
