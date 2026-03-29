@@ -96,9 +96,8 @@ fun MainApp(themeMode: AppThemeMode, onThemeChange: (AppThemeMode) -> Unit) {
     var loggedUser by remember { mutableStateOf<UserAccount?>(null) }
     var isSoundEnabled by rememberSaveable { mutableStateOf(sharedPrefs.getBoolean("is_sound_enabled", true)) }
     
-    // TÍTULO DO LOGIN (LAYOUT) - COM PERSISTÊNCIA
+    // TEXTOS E PERSISTÊNCIA
     var loginTitle by remember { mutableStateOf(sharedPrefs.getString("login_title", "BRINCANDO NA PRAÇA") ?: "BRINCANDO NA PRAÇA") }
-    // MENSAGEM DA NOTA (CONFIGURAÇÕES) - COM PERSISTÊNCIA
     var printerMessage by remember { mutableStateOf(sharedPrefs.getString("printer_message", "") ?: "") }
     
     var titleColorArgb by remember { mutableIntStateOf(sharedPrefs.getInt("title_color", IntenseGreen.toArgb())) }
@@ -106,19 +105,22 @@ fun MainApp(themeMode: AppThemeMode, onThemeChange: (AppThemeMode) -> Unit) {
     var outlineColorArgb by remember { mutableIntStateOf(sharedPrefs.getInt("outline_color", Color.Black.toArgb())) }
     var isLogoLocked by remember { mutableStateOf(sharedPrefs.getBoolean("is_logo_locked", false)) }
     
-    // LOGO DO LOGIN (LAYOUT) - COM PERSISTÊNCIA
+    // LOGOS
     var loginLogoBase64 by remember { mutableStateOf(sharedPrefs.getString("login_logo_base64", null)) }
-    // LOGO DA IMPRESSORA (CONFIGURAÇÕES) - COM PERSISTÊNCIA
     var printerLogoBase64 by remember { mutableStateOf(sharedPrefs.getString("printer_logo_base64", null)) }
     
+    // SWITCHES PERSISTIDOS
     var showLogoInLogin by remember { mutableStateOf(sharedPrefs.getBoolean("show_logo_login", false)) }
     var showPrinterLogo by remember { mutableStateOf(sharedPrefs.getBoolean("show_printer_logo", false)) }
     var showPrinterMessage by remember { mutableStateOf(sharedPrefs.getBoolean("show_printer_message", false)) }
     
+    // NOVOS SWITCHES DE TICKET AUTOMÁTICO (ENTRADA E SAÍDA)
+    var autoPrintEntrance by remember { mutableStateOf(sharedPrefs.getBoolean("auto_print_entrance", false)) }
+    var autoPrintExit by remember { mutableStateOf(sharedPrefs.getBoolean("auto_print_exit", false)) }
+    
     var printerMac by rememberSaveable { mutableStateOf(sharedPrefs.getString("last_printer_mac", "") ?: "") }
     var printerSize by rememberSaveable { mutableStateOf(sharedPrefs.getString("last_printer_size", "58mm") ?: "58mm") }
 
-    // LAUNCHER PARA LOGO DA IMPRESSORA (CONFIGURAÇÕES)
     val printerLogoLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         uri?.let {
             try {
@@ -133,7 +135,6 @@ fun MainApp(themeMode: AppThemeMode, onThemeChange: (AppThemeMode) -> Unit) {
         }
     }
 
-    // LAUNCHER PARA LOGO DO LOGIN (LAYOUT)
     val loginLogoLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         uri?.let {
             try {
@@ -149,15 +150,11 @@ fun MainApp(themeMode: AppThemeMode, onThemeChange: (AppThemeMode) -> Unit) {
         }
     }
 
-    // INICIA/PARA O SERVIÇO DE MONITORAMENTO EM BACKGROUND
     LaunchedEffect(isLogged) {
         val serviceIntent = Intent(context, TimerService::class.java)
         if (isLogged) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(serviceIntent)
-            } else {
-                context.startService(serviceIntent)
-            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(serviceIntent)
+            else context.startService(serviceIntent)
         } else {
             context.stopService(serviceIntent)
         }
@@ -205,7 +202,24 @@ fun MainApp(themeMode: AppThemeMode, onThemeChange: (AppThemeMode) -> Unit) {
                 }
             } else {
                 when (currentScreen) {
-                    "home" -> HomeScreen(appName = printerMessage, isSoundEnabled = isSoundEnabled, printerMac = printerMac, printerSize = printerSize, logoBase64 = if(showPrinterLogo) printerLogoBase64 else null, isLightMode = isLightMode)
+                    "home" -> HomeScreen(
+                        appName = printerMessage, 
+                        isSoundEnabled = isSoundEnabled, 
+                        printerMac = printerMac, 
+                        printerSize = printerSize, 
+                        logoBase64 = if(showPrinterLogo) printerLogoBase64 else null, 
+                        isLightMode = isLightMode,
+                        autoPrintEntrance = autoPrintEntrance,
+                        onAutoPrintEntranceChange = { 
+                            autoPrintEntrance = it
+                            sharedPrefs.edit().putBoolean("auto_print_entrance", it).apply()
+                        },
+                        autoPrintExit = autoPrintExit,
+                        onAutoPrintExitChange = {
+                            autoPrintExit = it
+                            sharedPrefs.edit().putBoolean("auto_print_exit", it).apply()
+                        }
+                    )
                     "register_toy" -> RegisterToyScreen(isLightMode = isLightMode)
                     "report" -> ReportScreen(printerMessage = printerMessage, printerMac = printerMac, printerSize = printerSize, logoBase64 = if(showPrinterLogo) printerLogoBase64 else null, onSearchClick = { currentScreen = "search_report" }, isLightMode = isLightMode)
                     "search_report" -> SearchReportScreen(appName = printerMessage, printerMac = printerMac, printerSize = printerSize, logoBase64 = if(showPrinterLogo) printerLogoBase64 else null, onBack = { currentScreen = "report" }, isLightMode = isLightMode)

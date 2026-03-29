@@ -3,6 +3,7 @@ package com.example.gerenciadordeparquinho.utils
 import android.app.*
 import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
@@ -13,6 +14,12 @@ import kotlinx.coroutines.*
 class TimerService : Service() {
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var isRunning = false
+    private lateinit var sharedPrefs: SharedPreferences
+
+    override fun onCreate() {
+        super.onCreate()
+        sharedPrefs = getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
+    }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -54,7 +61,6 @@ class TimerService : Service() {
                 activeSessions.forEach { session ->
                     if (!session.isFinished && !session.isPaused) {
                         if (session.remainingSeconds > 0) {
-                            // LOGICA DE DECREMENTO EM BACKGROUND
                             val diffSeconds = (now - session.lastUpdateTimestamp) / 1000
                             if (diffSeconds >= 1) {
                                 val newRemaining = (session.remainingSeconds - diffSeconds).coerceAtLeast(0L)
@@ -64,21 +70,35 @@ class TimerService : Service() {
                                     lastUpdateTimestamp = now
                                 )
                                 
-                                // Se acabou de chegar a zero agora, notifica
                                 if (newRemaining <= 0 && !session.notified) {
+                                    // 1. DISPARA NOTIFICAÇÃO NO TOPO
                                     showAlertNotification(session.personName, session.toyName)
+                                    
+                                    // 2. VERIFICA IMPRESSÃO AUTOMÁTICA DE SAÍDA
+                                    val autoPrintExit = sharedPrefs.getBoolean("auto_print_exit", false)
+                                    val printerMac = sharedPrefs.getString("last_printer_mac", "") ?: ""
+                                    val printerSize = sharedPrefs.getString("last_printer_size", "58mm") ?: "58mm"
+                                    val printerLogo = sharedPrefs.getString("printer_logo_base64", null)
+                                    val customMsg = sharedPrefs.getString("printer_message", "")
+
+                                    if (autoPrintExit && printerMac.isNotEmpty()) {
+                                        // FORÇAMOS isFinished = true apenas para o título da nota sair como SAÍDA
+                                        BluetoothPrinterHelper.printEntranceTicket(
+                                            macAddress = printerMac,
+                                            session = updatedSession.copy(isFinished = true),
+                                            size = printerSize,
+                                            logoBase64 = printerLogo,
+                                            customMessage = customMsg
+                                        )
+                                    }
+
                                     db.sessionDao().insertSession(updatedSession.copy(notified = true))
                                 } else {
                                     db.sessionDao().insertSession(updatedSession)
                                 }
                             }
-                        } else if (!session.notified) {
-                            // Caso já estivesse em zero mas não notificado
-                            showAlertNotification(session.personName, session.toyName)
-                            db.sessionDao().insertSession(session.copy(notified = true, lastUpdateTimestamp = now))
                         }
                     } else {
-                        // Apenas atualiza o timestamp para manter a consistência se pausado
                         db.sessionDao().insertSession(session.copy(lastUpdateTimestamp = now))
                     }
                 }
@@ -93,15 +113,12 @@ class TimerService : Service() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(channelId, "Alertas de Tempo", NotificationManager.IMPORTANCE_HIGH).apply {
                 enableVibration(true)
-                vibrationPattern = longArrayOf(0, 800, 200, 800) // Vibração mais forte
-                setBypassDnd(true) // Tenta pular o não perturbe se permitido
+                vibrationPattern = longArrayOf(0, 800, 200, 800)
             }
             manager.createNotificationChannel(channel)
         }
 
-        val intent = Intent(this, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
-        }
+        val intent = Intent(this, MainActivity::class.java)
         val pendingIntent = PendingIntent.getActivity(this, 0, intent, PendingIntent.FLAG_IMMUTABLE)
 
         val builder = NotificationCompat.Builder(this, channelId)
@@ -109,10 +126,8 @@ class TimerService : Service() {
             .setContentTitle("TEMPO ESGOTADO!")
             .setContentText("O TEMPO DE ${name.uppercase()} NO ${toy.uppercase()} ACABOU!")
             .setPriority(NotificationCompat.PRIORITY_MAX)
-            .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setVibrate(longArrayOf(0, 800, 200, 800))
             .setContentIntent(pendingIntent)
-            .setFullScreenIntent(pendingIntent, true) // Força o pop-up no topo
             .setAutoCancel(true)
             .setDefaults(NotificationCompat.DEFAULT_ALL)
 

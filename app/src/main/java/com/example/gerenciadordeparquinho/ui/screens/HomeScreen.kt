@@ -48,7 +48,11 @@ fun HomeScreen(
     printerMac: String = "",
     printerSize: String = "58mm",
     logoBase64: String? = null,
-    isLightMode: Boolean = false
+    isLightMode: Boolean = false,
+    autoPrintEntrance: Boolean = false,
+    onAutoPrintEntranceChange: (Boolean) -> Unit = {},
+    autoPrintExit: Boolean = false,
+    onAutoPrintExitChange: (Boolean) -> Unit = {}
 ) {
     val context = LocalContext.current
     val db = remember { AppDatabase.getDatabase(context) }
@@ -61,7 +65,6 @@ fun HomeScreen(
     val buttonBorder = if (isLightMode) BorderStroke(1.dp, Color.Black.copy(alpha = 0.5f)) else null
 
     var childName by rememberSaveable { mutableStateOf("") }
-    var printTicketAutomatic by rememberSaveable { mutableStateOf(false) }
     var selectedToy by remember { mutableStateOf<Toy?>(null) }
     var showToyPicker by remember { mutableStateOf(false) }
     var showTicketsDialog by remember { mutableStateOf(false) }
@@ -71,11 +74,24 @@ fun HomeScreen(
     val activeSessionsFromDb by db.sessionDao().getActiveSessions().collectAsState(initial = emptyList())
     val mediaPlayer = remember { MediaPlayer.create(context, R.raw.admin_alert) }
 
-    // ALERTA SONORO
+    // ALERTA SONORO E IMPRESSÃO AUTOMÁTICA DE SAÍDA
     LaunchedEffect(activeSessionsFromDb) {
         activeSessionsFromDb.forEach { session ->
-            if (session.remainingSeconds <= 0 && !session.isFinished && !session.isPaused && isSoundEnabled) {
-                try { if (mediaPlayer?.isPlaying == false) mediaPlayer.start() } catch (e: Exception) {}
+            if (session.remainingSeconds <= 0 && !session.isFinished && !session.isPaused) {
+                if (isSoundEnabled) {
+                    try { if (mediaPlayer?.isPlaying == false) mediaPlayer.start() } catch (e: Exception) {}
+                }
+                
+                // IMPRESSÃO AUTOMÁTICA DE SAÍDA
+                if (autoPrintExit && !session.notified && printerMac.isNotEmpty()) {
+                    BluetoothPrinterHelper.printEntranceTicket(
+                        macAddress = printerMac,
+                        session = session,
+                        size = printerSize,
+                        logoBase64 = logoBase64,
+                        customMessage = appName
+                    )
+                }
             }
         }
     }
@@ -119,15 +135,26 @@ fun HomeScreen(
         ) {
             Text(selectedToy?.name?.uppercase() ?: "SELECIONAR BRINQUEDO", fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
-        Spacer(modifier = Modifier.height(16.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Checkbox(checked = printTicketAutomatic, onCheckedChange = { printTicketAutomatic = it }, colors = CheckboxDefaults.colors(checkedColor = IntenseGreen, checkmarkColor = Color.Black))
-            Text("Imprimir Ticket Automático", color = textColor, fontWeight = if(isLightMode) FontWeight.Bold else FontWeight.Normal)
+        
+        Spacer(modifier = Modifier.height(12.dp))
+        
+        // SEÇÃO DE TICKETS AUTOMÁTICOS
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Text("IMPRIMIR TICKET AUTOMÁTICO", color = IntenseGreen, fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, style = highlightStyle)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Start) {
+                Checkbox(checked = autoPrintEntrance, onCheckedChange = onAutoPrintEntranceChange, colors = CheckboxDefaults.colors(checkedColor = IntenseGreen, checkmarkColor = Color.Black))
+                Text("Entrada", color = textColor, fontSize = 14.sp, fontWeight = if(isLightMode) FontWeight.Bold else FontWeight.Normal)
+                
+                Spacer(modifier = Modifier.width(20.dp))
+                
+                Checkbox(checked = autoPrintExit, onCheckedChange = onAutoPrintExitChange, colors = CheckboxDefaults.colors(checkedColor = IntenseGreen, checkmarkColor = Color.Black))
+                Text("Saída", color = textColor, fontSize = 14.sp, fontWeight = if(isLightMode) FontWeight.Bold else FontWeight.Normal)
+            }
         }
+
         Spacer(modifier = Modifier.height(16.dp))
         Button(
             onClick = {
-                // VERIFICA SE JÁ EXISTE UM CRONÔMETRO COM O MESMO NOME
                 val exists = activeSessionsFromDb.any { it.personName.equals(childName.trim(), ignoreCase = true) }
                 if (exists) {
                     showDuplicateNameDialog = true
@@ -143,7 +170,7 @@ fun HomeScreen(
                     )
                     scope.launch { 
                         db.sessionDao().insertSession(newSession)
-                        if (printTicketAutomatic && printerMac.isNotEmpty()) {
+                        if (autoPrintEntrance && printerMac.isNotEmpty()) {
                             BluetoothPrinterHelper.printEntranceTicket(printerMac, newSession, printerSize, logoBase64, appName)
                         }
                     }

@@ -23,7 +23,7 @@ object BluetoothPrinterHelper {
     private val CHARSET_16 = byteArrayOf(0x1B, 0x74, 0x10)
     private val BOLD_ON = byteArrayOf(0x1B, 0x45, 0x01)
     private val BOLD_OFF = byteArrayOf(0x1B, 0x45, 0x00)
-    private val DOUBLE_STRIKE_ON = byteArrayOf(0x1B, 0x47, 0x01) // Negrito extra
+    private val DOUBLE_STRIKE_ON = byteArrayOf(0x1B, 0x47, 0x01)
     private val DOUBLE_STRIKE_OFF = byteArrayOf(0x1B, 0x47, 0x00)
     
     private val NORMAL_FONT = byteArrayOf(0x1D, 0x21, 0x00) // 1x1
@@ -109,7 +109,6 @@ object BluetoothPrinterHelper {
                     }
                 }
 
-                // MENSAGEM CUSTOMIZADA (2x2)
                 if (!customMessage.isNullOrBlank()) {
                     out.write(CENTER)
                     out.write(BOLD_ON)
@@ -118,21 +117,29 @@ object BluetoothPrinterHelper {
                     out.write("$customMessage\n\n".toByteArray(Charsets.ISO_8859_1))
                 }
 
-                // TÍTULO (3x3 - BEM GRANDE)
                 out.write(BOLD_ON)
                 out.write(HUGE_FONT)
                 val title = if (session.isFinished) "TICKET\nDE\nSAIDA" else "TICKET\nDE\nENTRADA"
                 out.write("$title\n\n".toByteArray(Charsets.ISO_8859_1))
 
-                // DETALHES (1x2 - MAIS ALTOS E EM NEGRITO EXTRA)
-                out.write(TALL_FONT)
+                out.write(NORMAL_FONT)
+                out.write("--------------------------------\n".toByteArray())
+
+                out.write(CENTER)
                 out.write(BOLD_ON)
                 out.write(DOUBLE_STRIKE_ON)
-                out.write("--------------------------------\n".toByteArray())
-                out.write(LEFT)
-                out.write("CLIENTE: ${session.personName.uppercase()}\n".toByteArray(Charsets.ISO_8859_1))
-                out.write("BRINQUEDO: ${session.toyName.uppercase()}\n".toByteArray(Charsets.ISO_8859_1))
                 
+                // CLIENTE (LINHA 1: RÓTULO | LINHA 2: NOME)
+                out.write(TALL_FONT) // REDUZIDO PARA 1x2 CONFORME SOLICITADO
+                out.write("CLIENTE\n".toByteArray(Charsets.ISO_8859_1))
+                out.write("${session.personName.uppercase()}\n\n".toByteArray(Charsets.ISO_8859_1))
+                
+                // BRINQUEDO (LINHA 1: RÓTULO | LINHA 2: NOME)
+                out.write("BRINQUEDO\n".toByteArray(Charsets.ISO_8859_1))
+                out.write("${session.toyName.uppercase()}\n\n".toByteArray(Charsets.ISO_8859_1))
+                
+                // VALOR, INICIO E FIM (MANTIDO 2x2 ORIGINAL CONFORME SOLICITADO)
+                out.write(BIG_FONT)
                 val valToPrint = if (session.isFinished) session.totalValueAccumulated else session.toyPrice
                 out.write("VALOR: R$ %.2f\n".format(valToPrint).toByteArray(Charsets.ISO_8859_1))
                 out.write("INICIO: ${session.startTime}\n".toByteArray(Charsets.ISO_8859_1))
@@ -200,29 +207,34 @@ object BluetoothPrinterHelper {
                 if (!customMessage.isNullOrBlank()) {
                     out.write(CENTER)
                     out.write(BOLD_ON)
+                    out.write(DOUBLE_STRIKE_ON)
                     out.write(BIG_FONT)
                     out.write("$customMessage\n\n".toByteArray(Charsets.ISO_8859_1))
                 }
 
                 out.write(BOLD_ON)
                 out.write(BIG_FONT)
-                out.write("RESUMO PARA:\n${childName.uppercase()}\n".toByteArray(Charsets.ISO_8859_1))
+                out.write("RESUMO PARA\n${childName.uppercase()}\n".toByteArray(Charsets.ISO_8859_1))
                 out.write(NORMAL_FONT)
                 val dateStr = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).format(Date())
                 out.write("DATA: $dateStr\n\n".toByteArray(Charsets.ISO_8859_1))
 
-                out.write(LEFT)
-                out.write("--------------------------------\n".toByteArray())
+                out.write(CENTER)
+                out.write(BOLD_ON)
+                out.write(DOUBLE_STRIKE_ON)
 
                 history.forEach { session ->
                     out.write(TALL_FONT)
-                    out.write(BOLD_ON)
-                    out.write("BRINQUEDO: ${session.toyName.uppercase()}\n".toByteArray(Charsets.ISO_8859_1))
-                    out.write(BOLD_OFF)
+                    out.write("BRINQUEDO\n".toByteArray(Charsets.ISO_8859_1))
+                    out.write("${session.toyName.uppercase()}\n".toByteArray(Charsets.ISO_8859_1))
+
                     out.write("INI: ${session.startTime} | FIM: ${session.endTime ?: "--:--:--"}\n".toByteArray(Charsets.ISO_8859_1))
                     out.write("VALOR: R$ %.2f\n".format(session.totalValueAccumulated).toByteArray(Charsets.ISO_8859_1))
                     out.write(NORMAL_FONT)
                     out.write("--------------------------------\n".toByteArray())
+                    out.write(TALL_FONT)
+                    out.write(BOLD_ON)
+                    out.write(DOUBLE_STRIKE_ON)
                 }
 
                 out.write("\n".toByteArray())
