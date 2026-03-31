@@ -10,6 +10,8 @@ import androidx.core.app.NotificationCompat
 import com.example.gerenciadordeparquinho.MainActivity
 import com.example.gerenciadordeparquinho.data.repository.AppDatabase
 import kotlinx.coroutines.*
+import java.text.SimpleDateFormat
+import java.util.*
 
 class TimerService : Service() {
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -74,7 +76,10 @@ class TimerService : Service() {
                                     // 1. DISPARA NOTIFICAÇÃO NO TOPO
                                     showAlertNotification(session.personName, session.toyName)
                                     
-                                    // 2. VERIFICA IMPRESSÃO AUTOMÁTICA DE SAÍDA
+                                    // 2. CALCULA O VALOR ATUAL (PROPORCIONAL)
+                                    val currentVal = updatedSession.calculateCurrentProportionalValue()
+
+                                    // 3. VERIFICA IMPRESSÃO AUTOMÁTICA DE SAÍDA
                                     val autoPrintExit = sharedPrefs.getBoolean("auto_print_exit", false)
                                     val printerMac = sharedPrefs.getString("last_printer_mac", "") ?: ""
                                     val printerSize = sharedPrefs.getString("last_printer_size", "58mm") ?: "58mm"
@@ -82,10 +87,9 @@ class TimerService : Service() {
                                     val customMsg = sharedPrefs.getString("printer_message", "")
 
                                     if (autoPrintExit && printerMac.isNotEmpty()) {
-                                        // FORÇAMOS isFinished = true apenas para o título da nota sair como SAÍDA
                                         BluetoothPrinterHelper.printEntranceTicket(
                                             macAddress = printerMac,
-                                            session = updatedSession.copy(isFinished = true),
+                                            session = updatedSession.copy(totalValueAccumulated = currentVal, isFinished = true),
                                             size = printerSize,
                                             logoBase64 = printerLogo,
                                             customMessage = customMsg
@@ -114,11 +118,14 @@ class TimerService : Service() {
             val channel = NotificationChannel(channelId, "Alertas de Tempo", NotificationManager.IMPORTANCE_HIGH).apply {
                 enableVibration(true)
                 vibrationPattern = longArrayOf(0, 800, 200, 800)
+                setBypassDnd(true) // Pula o Não Perturbe se permitido
             }
             manager.createNotificationChannel(channel)
         }
 
-        val intent = Intent(this, MainActivity::class.java)
+        val intent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+        }
         val pendingIntent = PendingIntent.getActivity(this, 0, intent, PendingIntent.FLAG_IMMUTABLE)
 
         val builder = NotificationCompat.Builder(this, channelId)
@@ -126,8 +133,10 @@ class TimerService : Service() {
             .setContentTitle("TEMPO ESGOTADO!")
             .setContentText("O TEMPO DE ${name.uppercase()} NO ${toy.uppercase()} ACABOU!")
             .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setVibrate(longArrayOf(0, 800, 200, 800))
             .setContentIntent(pendingIntent)
+            .setFullScreenIntent(pendingIntent, true) // FORÇA O POP-UP NO TOPO (Heads-up)
             .setAutoCancel(true)
             .setDefaults(NotificationCompat.DEFAULT_ALL)
 

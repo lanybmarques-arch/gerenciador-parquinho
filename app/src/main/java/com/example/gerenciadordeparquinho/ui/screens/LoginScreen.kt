@@ -44,7 +44,7 @@ fun LoginScreen(
     hasOutline: Boolean,
     outlineColor: Color,
     customLogo: String? = null,
-    onLoginSuccess: (UserAccount) -> Unit,
+    onLoginSuccess: (UserAccount, Boolean) -> Unit, // ALTERADO: Agora retorna se deve manter logado
     onForgot: () -> Unit,
     onChange: () -> Unit,
     onRegister: () -> Unit,
@@ -57,6 +57,7 @@ fun LoginScreen(
 
     var user by rememberSaveable { mutableStateOf("") }
     var pass by rememberSaveable { mutableStateOf("") }
+    var stayLoggedIn by rememberSaveable { mutableStateOf(false) } // NOVO ESTADO
     var passVisible by rememberSaveable { mutableStateOf(false) }
     var error by rememberSaveable { mutableStateOf("") }
 
@@ -69,7 +70,25 @@ fun LoginScreen(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Top
     ) {
-        Spacer(modifier = Modifier.height(60.dp))
+        // INTERRUPTOR DE MANTER LOGADO NO TOPO DIREITO
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+            horizontalArrangement = Arrangement.End,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("MANTER LOGADO", color = secondaryTextColor, fontSize = 10.sp, fontWeight = FontWeight.Black)
+            Spacer(Modifier.width(8.dp))
+            Switch(
+                checked = stayLoggedIn,
+                onCheckedChange = { stayLoggedIn = it },
+                colors = SwitchDefaults.colors(
+                    checkedThumbColor = IntenseGreen,
+                    checkedTrackColor = IntenseGreen.copy(alpha = 0.5f)
+                )
+            )
+        }
+
+        Spacer(modifier = Modifier.height(20.dp))
         
         if (!customLogo.isNullOrEmpty()) {
             val bitmap = remember(customLogo) {
@@ -153,15 +172,15 @@ fun LoginScreen(
                     scope.launch {
                         try {
                             if (user == "admin" && pass == "102030aa") {
-                                onLoginSuccess(UserAccount(username = "admin", pass = pass, role = "ADMIN"))
+                                onLoginSuccess(UserAccount(username = "admin", pass = pass, role = "ADMIN"), stayLoggedIn)
                                 return@launch
                             }
                             val account = db.userDao().getUserByUsername(user)
                             if (account != null && account.pass == pass) {
-                                if (account.isBlocked) error = "USUÁRIO BLOQUEADO" else onLoginSuccess(account)
+                                if (account.isBlocked) error = "USUÁRIO BLOQUEADO" else onLoginSuccess(account, stayLoggedIn)
                             } else error = "DADOS INCORRETOS"
                         } catch (e: Exception) {
-                            if (user == "admin" && pass == "102030aa") onLoginSuccess(UserAccount(username = "admin", pass = pass, role = "ADMIN"))
+                            if (user == "admin" && pass == "102030aa") onLoginSuccess(UserAccount(username = "admin", pass = pass, role = "ADMIN"), stayLoggedIn)
                             else error = "ERRO AO ACESSAR BANCO"
                         }
                     }

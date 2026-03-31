@@ -14,7 +14,6 @@ import android.util.Base64
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -45,41 +44,38 @@ import com.example.gerenciadordeparquinho.ui.theme.AppThemeMode
 import com.example.gerenciadordeparquinho.ui.theme.BrincandoTheme
 import com.example.gerenciadordeparquinho.ui.theme.IntenseGreen
 import com.example.gerenciadordeparquinho.utils.TimerService
+import kotlinx.coroutines.launch
 import java.io.ByteArrayOutputStream
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
         setContent {
             val context = LocalContext.current
             val sharedPrefs = remember { context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE) }
-            val savedTheme = remember { sharedPrefs.getString("theme_mode", AppThemeMode.DARK.name) }
-            var appThemeMode by rememberSaveable { mutableStateOf(AppThemeMode.valueOf(savedTheme ?: AppThemeMode.DARK.name)) }
-
-            // PEDIR PERMISSÃO DE NOTIFICAÇÃO (ESSENCIAL PARA ANDROID 13+)
-            RequestNotificationPermission()
-
-            BrincandoTheme(appThemeMode = appThemeMode) {
-                Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                    MainApp(themeMode = appThemeMode, onThemeChange = { appThemeMode = it; sharedPrefs.edit().putString("theme_mode", it.name).apply() })
+            
+            // Carrega o tema salvo ou usa DARK como padrão
+            val savedTheme = sharedPrefs.getString("app_theme", AppThemeMode.DARK.name) ?: AppThemeMode.DARK.name
+            var themeMode by rememberSaveable { mutableStateOf(AppThemeMode.valueOf(savedTheme)) }
+            
+            val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+            
+            LaunchedEffect(Unit) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                        permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                    }
                 }
             }
-        }
-    }
 
-    @Composable
-    private fun RequestNotificationPermission() {
-        val context = LocalContext.current
-        val permissionLauncher = rememberLauncherForActivityResult(
-            ActivityResultContracts.RequestPermission()
-        ) { }
-
-        LaunchedEffect(Unit) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-                    permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                }
+            BrincandoTheme(appThemeMode = themeMode) {
+                MainApp(
+                    themeMode = themeMode, 
+                    onThemeChange = { 
+                        themeMode = it
+                        sharedPrefs.edit().putString("app_theme", it.name).apply()
+                    }
+                )
             }
         }
     }
@@ -89,6 +85,8 @@ class MainActivity : ComponentActivity() {
 fun MainApp(themeMode: AppThemeMode, onThemeChange: (AppThemeMode) -> Unit) {
     val context = LocalContext.current
     val sharedPrefs = remember { context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE) }
+    val scope = rememberCoroutineScope()
+    val db = remember { AppDatabase.getDatabase(context) }
     
     var currentScreen by rememberSaveable { mutableStateOf("login") }
     var isLogged by rememberSaveable { mutableStateOf(false) }
@@ -120,6 +118,28 @@ fun MainApp(themeMode: AppThemeMode, onThemeChange: (AppThemeMode) -> Unit) {
     
     var printerMac by rememberSaveable { mutableStateOf(sharedPrefs.getString("last_printer_mac", "") ?: "") }
     var printerSize by rememberSaveable { mutableStateOf(sharedPrefs.getString("last_printer_size", "58mm") ?: "58mm") }
+
+    // LOGICA DE AUTO-LOGIN
+    LaunchedEffect(Unit) {
+        val stayLogged = sharedPrefs.getBoolean("stay_logged_in", false)
+        val savedUser = sharedPrefs.getString("saved_username", "") ?: ""
+        if (stayLogged && savedUser.isNotEmpty()) {
+            scope.launch {
+                val account = if (savedUser == "admin") {
+                    UserAccount(username = "admin", pass = "102030aa", role = "ADMIN")
+                } else {
+                    db.userDao().getUserByUsername(savedUser)
+                }
+                
+                if (account != null) {
+                    loggedUser = account
+                    isAdmin = account.role == "ADMIN" || account.username == "admin"
+                    isLogged = true
+                    currentScreen = "home"
+                }
+            }
+        }
+    }
 
     val printerLogoLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         uri?.let {
@@ -153,8 +173,11 @@ fun MainApp(themeMode: AppThemeMode, onThemeChange: (AppThemeMode) -> Unit) {
     LaunchedEffect(isLogged) {
         val serviceIntent = Intent(context, TimerService::class.java)
         if (isLogged) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(serviceIntent)
-            else context.startService(serviceIntent)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                context.startForegroundService(serviceIntent)
+            } else {
+                context.startService(serviceIntent)
+            }
         } else {
             context.stopService(serviceIntent)
         }
@@ -172,8 +195,12 @@ fun MainApp(themeMode: AppThemeMode, onThemeChange: (AppThemeMode) -> Unit) {
                         if (isAdmin || loggedUser?.canRegister == true) navItems.add(Triple("register_toy", Icons.Default.Add, "Cadastrar"))
                         if (isAdmin || loggedUser?.canReport == true) navItems.add(Triple("report", Icons.Default.Assessment, "Relatório"))
                         if (isAdmin || loggedUser?.canSettings == true) navItems.add(Triple("settings", Icons.Default.Settings, "Config"))
-                        if (isAdmin) {
+                        
+                        if (isAdmin || loggedUser?.canLayout == true) {
                             navItems.add(Triple("layout", Icons.Default.Palette, "Layout"))
+                        }
+                        
+                        if (isAdmin) {
                             navItems.add(Triple("access", Icons.Default.Group, "Acessos"))
                         }
                         navItems.forEach { (screen, icon, label) ->
@@ -181,7 +208,11 @@ fun MainApp(themeMode: AppThemeMode, onThemeChange: (AppThemeMode) -> Unit) {
                                 val isSelected = currentScreen == screen
                                 val contentColor = if (isSelected) IntenseGreen else if(isLightMode) Color.Black else Color.Gray
                                 Box(modifier = Modifier.size(48.dp).background(if (isSelected) IntenseGreen.copy(alpha = 0.2f) else Color.Transparent, RoundedCornerShape(16.dp)), contentAlignment = Alignment.Center) {
-                                    Icon(imageVector = icon, contentDescription = label, tint = contentColor, modifier = if (screen == "home") Modifier.pointerInput(Unit) { detectTapGestures(onLongPress = { isLogged = false; currentScreen = "login" }, onTap = { currentScreen = "home" }) } else Modifier)
+                                    Icon(imageVector = icon, contentDescription = label, tint = contentColor, modifier = if (screen == "home") Modifier.pointerInput(Unit) { detectTapGestures(onLongPress = { 
+                                        isLogged = false
+                                        currentScreen = "login"
+                                        sharedPrefs.edit().putBoolean("stay_logged_in", false).remove("saved_username").apply()
+                                    }, onTap = { currentScreen = "home" }) } else Modifier)
                                 }
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(text = label, color = contentColor, fontSize = 12.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium, maxLines = 1)
@@ -195,7 +226,25 @@ fun MainApp(themeMode: AppThemeMode, onThemeChange: (AppThemeMode) -> Unit) {
         Box(modifier = Modifier.padding(innerPadding).fillMaxSize()) {
             if (!isLogged) {
                 when (currentScreen) {
-                    "login" -> LoginScreen(appName = loginTitle, titleColor = Color(titleColorArgb), hasOutline = hasOutline, outlineColor = Color(outlineColorArgb), customLogo = if (showLogoInLogin) loginLogoBase64 else null, onLoginSuccess = { acc -> loggedUser = acc; isLogged = true; isAdmin = acc.role == "ADMIN" || acc.username == "admin"; currentScreen = "home" }, onForgot = { currentScreen = "forgot" }, onChange = { currentScreen = "change" }, onRegister = { currentScreen = "register" }, storedPass = "102030aa", isLightMode = isLightMode)
+                    "login" -> LoginScreen(
+                        appName = loginTitle, 
+                        titleColor = Color(titleColorArgb), 
+                        hasOutline = hasOutline, 
+                        outlineColor = Color(outlineColorArgb), 
+                        customLogo = if (showLogoInLogin) loginLogoBase64 else null, 
+                        onLoginSuccess = { acc, stay -> 
+                            loggedUser = acc
+                            isLogged = true
+                            isAdmin = acc.username == "admin" || acc.role == "ADMIN"
+                            currentScreen = "home"
+                            sharedPrefs.edit().putBoolean("stay_logged_in", stay).putString("saved_username", acc.username).apply()
+                        }, 
+                        onForgot = { currentScreen = "forgot" }, 
+                        onChange = { currentScreen = "change" }, 
+                        onRegister = { currentScreen = "register" }, 
+                        storedPass = "102030aa", 
+                        isLightMode = isLightMode
+                    )
                     "register" -> RegisterScreen(customLogo = if (showLogoInLogin) loginLogoBase64 else null, onBack = { currentScreen = "login" }, isLightMode = isLightMode)
                     "forgot" -> ForgotPasswordScreen(onBack = { currentScreen = "login" }, isLightMode = isLightMode)
                     "change" -> ChangePasswordScreen(onBack = { currentScreen = "login" }, currentPass = "102030aa", currentUser = "admin", onConfirm = { currentScreen = "login" }, isLightMode = isLightMode)
@@ -218,10 +267,19 @@ fun MainApp(themeMode: AppThemeMode, onThemeChange: (AppThemeMode) -> Unit) {
                         onAutoPrintExitChange = {
                             autoPrintExit = it
                             sharedPrefs.edit().putBoolean("auto_print_exit", it).apply()
-                        }
+                        },
+                        isAdmin = isAdmin
                     )
                     "register_toy" -> RegisterToyScreen(isLightMode = isLightMode)
-                    "report" -> ReportScreen(printerMessage = printerMessage, printerMac = printerMac, printerSize = printerSize, logoBase64 = if(showPrinterLogo) printerLogoBase64 else null, onSearchClick = { currentScreen = "search_report" }, isLightMode = isLightMode)
+                    "report" -> ReportScreen(
+                        printerMessage = printerMessage, 
+                        printerMac = printerMac, 
+                        printerSize = printerSize, 
+                        logoBase64 = if(showPrinterLogo) printerLogoBase64 else null, 
+                        onSearchClick = { currentScreen = "search_report" }, 
+                        isLightMode = isLightMode,
+                        isAdmin = isAdmin
+                    )
                     "search_report" -> SearchReportScreen(appName = printerMessage, printerMac = printerMac, printerSize = printerSize, logoBase64 = if(showPrinterLogo) printerLogoBase64 else null, onBack = { currentScreen = "report" }, isLightMode = isLightMode)
                     "settings" -> SettingsScreen(
                         appName = printerMessage, 
@@ -261,7 +319,7 @@ fun MainApp(themeMode: AppThemeMode, onThemeChange: (AppThemeMode) -> Unit) {
                     )
                     "layout" -> LayoutScreen(
                         isAdmin = isAdmin, 
-                        currentTheme = themeMode, 
+                        currentTheme = themeMode,
                         onThemeChange = onThemeChange, 
                         appName = loginTitle, 
                         onAppNameChange = { 
@@ -290,6 +348,11 @@ fun MainApp(themeMode: AppThemeMode, onThemeChange: (AppThemeMode) -> Unit) {
                         }, 
                         logoBase64 = loginLogoBase64, 
                         onSelectLogo = { loginLogoLauncher.launch("image/*") }, 
+                        onResetLogo = {
+                            loginLogoBase64 = null
+                            showLogoInLogin = false
+                            sharedPrefs.edit().remove("login_logo_base64").putBoolean("show_logo_login", false).apply()
+                        },
                         onBack = { currentScreen = "settings" }, 
                         isLightMode = isLightMode
                     )

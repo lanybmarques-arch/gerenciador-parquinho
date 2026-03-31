@@ -23,6 +23,7 @@ import com.example.gerenciadordeparquinho.data.repository.AppDatabase
 import com.example.gerenciadordeparquinho.ui.theme.IntenseGreen
 import com.example.gerenciadordeparquinho.ui.theme.getHighlightStyle
 import com.example.gerenciadordeparquinho.utils.BluetoothPrinterHelper
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -33,10 +34,12 @@ fun ReportScreen(
     printerSize: String = "58mm",
     logoBase64: String? = null,
     onSearchClick: () -> Unit = {},
-    isLightMode: Boolean = false
+    isLightMode: Boolean = false,
+    isAdmin: Boolean = false // ADICIONADO CONTROLE DE ADMIN
 ) {
     val context = LocalContext.current
     val db = remember { AppDatabase.getDatabase(context) }
+    val scope = rememberCoroutineScope()
     val today = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).format(Date())
     
     val sessionsToday by db.sessionDao().getSessionsByDate(today).collectAsState(initial = emptyList())
@@ -124,6 +127,7 @@ fun ReportScreen(
                     textColor = textColor,
                     secondaryColor = secondaryColor,
                     isLightMode = isLightMode,
+                    isAdmin = isAdmin,
                     onPrint = {
                         if (printerMac.isNotEmpty()) {
                             BluetoothPrinterHelper.printEntranceTicket(
@@ -136,6 +140,9 @@ fun ReportScreen(
                         } else {
                             Toast.makeText(context, "Configure a impressora!", Toast.LENGTH_SHORT).show()
                         }
+                    },
+                    onDelete = {
+                        scope.launch { db.sessionDao().deleteSession(session) }
                     }
                 )
             }
@@ -182,7 +189,15 @@ fun ReportScreen(
 }
 
 @Composable
-fun ReportItemUI(session: PlaySession, textColor: Color, secondaryColor: Color, isLightMode: Boolean, onPrint: () -> Unit) {
+fun ReportItemUI(
+    session: PlaySession, 
+    textColor: Color, 
+    secondaryColor: Color, 
+    isLightMode: Boolean, 
+    isAdmin: Boolean,
+    onPrint: () -> Unit,
+    onDelete: () -> Unit
+) {
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
@@ -197,8 +212,10 @@ fun ReportItemUI(session: PlaySession, textColor: Color, secondaryColor: Color, 
                 IconButton(onClick = onPrint) {
                     Icon(Icons.Default.Print, null, tint = IntenseGreen, modifier = Modifier.size(24.dp))
                 }
-                IconButton(onClick = { }) {
-                    Icon(Icons.Default.Delete, null, tint = Color.Red, modifier = Modifier.size(24.dp))
+                if (isAdmin) {
+                    IconButton(onClick = onDelete) {
+                        Icon(Icons.Default.Delete, null, tint = Color.Red, modifier = Modifier.size(24.dp))
+                    }
                 }
             }
         }

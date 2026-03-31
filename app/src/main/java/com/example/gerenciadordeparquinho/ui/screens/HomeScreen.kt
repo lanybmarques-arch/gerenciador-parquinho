@@ -2,30 +2,41 @@ package com.example.gerenciadordeparquinho.ui.screens
 
 import android.app.DatePickerDialog
 import android.media.MediaPlayer
-import android.widget.Toast
+import androidx.compose.animation.*
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.*
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.DialogProperties
@@ -40,6 +51,14 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
+import kotlin.math.roundToInt
+
+// Enum para os estados de arrastar (Swipe)
+enum class DragAnchors {
+    Start,
+    Center,
+    End
+}
 
 @Composable
 fun HomeScreen(
@@ -52,7 +71,8 @@ fun HomeScreen(
     autoPrintEntrance: Boolean = false,
     onAutoPrintEntranceChange: (Boolean) -> Unit = {},
     autoPrintExit: Boolean = false,
-    onAutoPrintExitChange: (Boolean) -> Unit = {}
+    onAutoPrintExitChange: (Boolean) -> Unit = {},
+    isAdmin: Boolean = false
 ) {
     val context = LocalContext.current
     val db = remember { AppDatabase.getDatabase(context) }
@@ -73,74 +93,84 @@ fun HomeScreen(
     val toys by db.toyDao().getAllToys().collectAsState(initial = emptyList())
     val activeSessionsFromDb by db.sessionDao().getActiveSessions().collectAsState(initial = emptyList())
     val mediaPlayer = remember { MediaPlayer.create(context, R.raw.admin_alert) }
+    val clickPlayer = remember { MediaPlayer.create(context, R.raw.click) }
 
-    // ALERTA SONORO E IMPRESSÃO AUTOMÁTICA DE SAÍDA
-    LaunchedEffect(activeSessionsFromDb) {
-        activeSessionsFromDb.forEach { session ->
-            if (session.remainingSeconds <= 0 && !session.isFinished && !session.isPaused) {
-                if (isSoundEnabled) {
-                    try { if (mediaPlayer?.isPlaying == false) mediaPlayer.start() } catch (e: Exception) {}
-                }
-                
-                // IMPRESSÃO AUTOMÁTICA DE SAÍDA
-                if (autoPrintExit && !session.notified && printerMac.isNotEmpty()) {
-                    BluetoothPrinterHelper.printEntranceTicket(
-                        macAddress = printerMac,
-                        session = session,
-                        size = printerSize,
-                        logoBase64 = logoBase64,
-                        customMessage = appName
-                    )
+    // ALERTA SONORO, CONTAGEM REGRESSIVA E IMPRESSÃO AUTOMÁTICA DE SAÍDA (ESTÁVEL)
+    val activeSessionsState = rememberUpdatedState(activeSessionsFromDb)
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(1000)
+            val now = System.currentTimeMillis()
+            activeSessionsState.value.forEach { session ->
+                if (!session.isFinished && !session.isPaused) {
+                    if (session.remainingSeconds > 0) {
+                        val diffSeconds = (now - session.lastUpdateTimestamp) / 1000
+                        if (diffSeconds >= 1) {
+                            val newRemaining = (session.remainingSeconds - diffSeconds).coerceAtLeast(0L)
+                            db.sessionDao().insertSession(session.copy(
+                                remainingSeconds = newRemaining,
+                                elapsedSecondsInCurrentCycle = session.elapsedSecondsInCurrentCycle + diffSeconds,
+                                lastUpdateTimestamp = now
+                            ))
+                        }
+                    } else {
+                        // Tempo esgotado: Alerta Sonoro
+                        if (isSoundEnabled) {
+                            try { if (!mediaPlayer.isPlaying) mediaPlayer.start() } catch (_: Exception) {}
+                        }
+                        
+                        // Impressão Automática de Saída
+                        if (autoPrintExit && !session.notified && printerMac.isNotEmpty()) {
+                            BluetoothPrinterHelper.printEntranceTicket(printerMac, session, printerSize, logoBase64, appName)
+                            db.sessionDao().insertSession(session.copy(notified = true, lastUpdateTimestamp = now))
+                        } else {
+                            db.sessionDao().insertSession(session.copy(lastUpdateTimestamp = now))
+                        }
+                    }
+                } else if (session.isPaused) {
+                    db.sessionDao().insertSession(session.copy(lastUpdateTimestamp = now))
                 }
             }
         }
     }
 
-    Column(modifier = Modifier.fillMaxSize().background(bgColor).padding(horizontal = 20.dp)) {
-        Spacer(modifier = Modifier.height(24.dp))
+    Column(modifier = Modifier.fillMaxSize().background(bgColor).padding(16.dp)) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            Text("CONTROLE", color = IntenseGreen, fontSize = 24.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis, style = highlightStyle)
-            IconButton(onClick = { showTicketsDialog = true }) { 
-                Icon(
-                    imageVector = Icons.Default.Print, 
-                    contentDescription = null, 
-                    tint = if (isLightMode) Color.Black else IntenseGreen, 
-                    modifier = Modifier.size(28.dp)
-                ) 
+            Text(appName.uppercase(), color = IntenseGreen, fontSize = 22.sp, fontWeight = FontWeight.Black, style = highlightStyle)
+            IconButton(onClick = { showTicketsDialog = true }) {
+                Icon(Icons.Default.ConfirmationNumber, null, tint = IntenseGreen, modifier = Modifier.size(28.dp))
             }
         }
-        Spacer(modifier = Modifier.height(24.dp))
+
+        Spacer(modifier = Modifier.height(16.dp))
+        
         OutlinedTextField(
             value = childName,
             onValueChange = { childName = it },
-            label = { Text("Nome da Criança", color = if(isLightMode) Color.Black else IntenseGreen, fontWeight = if(isLightMode) FontWeight.Bold else FontWeight.Normal) },
-            singleLine = true,
+            label = { Text("NOME DA CRIANÇA", color = secondaryColor, fontWeight = FontWeight.Bold) },
             modifier = Modifier.fillMaxWidth(),
+            textStyle = TextStyle(color = textColor, fontWeight = FontWeight.Bold, fontSize = 18.sp),
             colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = IntenseGreen, 
-                unfocusedBorderColor = if(isLightMode) Color.Black else IntenseGreen, 
-                focusedTextColor = textColor, 
-                unfocusedTextColor = textColor, 
+                focusedBorderColor = IntenseGreen,
+                unfocusedBorderColor = secondaryColor,
+                focusedLabelColor = IntenseGreen,
                 cursorColor = IntenseGreen
             ),
-            shape = RoundedCornerShape(8.dp)
+            shape = RoundedCornerShape(12.dp),
+            singleLine = true
         )
-        Spacer(modifier = Modifier.height(16.dp))
-        Button(
-            onClick = { showToyPicker = true },
-            modifier = Modifier.fillMaxWidth().height(54.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = IntenseGreen, contentColor = Color.Black),
-            shape = RoundedCornerShape(27.dp),
-            border = buttonBorder
-        ) {
-            Text(selectedToy?.name?.uppercase() ?: "SELECIONAR BRINQUEDO", fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        }
-        
+
         Spacer(modifier = Modifier.height(12.dp))
-        
-        // SEÇÃO DE TICKETS AUTOMÁTICOS
-        Column(modifier = Modifier.fillMaxWidth()) {
-            Text("IMPRIMIR TICKET AUTOMÁTICO", color = IntenseGreen, fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, style = highlightStyle)
+
+        Box(modifier = Modifier.fillMaxWidth().height(56.dp).clip(RoundedCornerShape(12.dp)).background(if (isLightMode) Color(0xFFF0F0F0) else Color(0xFF1A1A1A)).clickable { showToyPicker = true }.border(1.dp, if (selectedToy != null) IntenseGreen else secondaryColor, RoundedCornerShape(12.dp)).padding(horizontal = 16.dp), contentAlignment = Alignment.CenterStart) {
+            Text(selectedToy?.name?.uppercase() ?: "SELECIONAR BRINQUEDO", color = if (selectedToy != null) textColor else secondaryColor, fontWeight = FontWeight.Bold)
+            Icon(Icons.Default.ArrowDropDown, null, tint = IntenseGreen, modifier = Modifier.align(Alignment.CenterEnd))
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp)) {
+            Text("IMPRESSÃO AUTOMÁTICA:", color = secondaryColor, fontSize = 10.sp, fontWeight = FontWeight.Black)
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Start) {
                 Checkbox(checked = autoPrintEntrance, onCheckedChange = onAutoPrintEntranceChange, colors = CheckboxDefaults.colors(checkedColor = IntenseGreen, checkmarkColor = Color.Black))
                 Text("Entrada", color = textColor, fontSize = 14.sp, fontWeight = if(isLightMode) FontWeight.Bold else FontWeight.Normal)
@@ -153,8 +183,15 @@ fun HomeScreen(
         }
 
         Spacer(modifier = Modifier.height(16.dp))
+        
+        val interactionSource = remember { MutableInteractionSource() }
+        val isPressed by interactionSource.collectIsPressedAsState()
+        val scale by animateFloatAsState(if (isPressed) 0.92f else 1f, label = "buttonScale")
+
         Button(
             onClick = {
+                try { clickPlayer?.start() } catch (_: Exception) {}
+                
                 val exists = activeSessionsFromDb.any { it.personName.equals(childName.trim(), ignoreCase = true) }
                 if (exists) {
                     showDuplicateNameDialog = true
@@ -178,7 +215,8 @@ fun HomeScreen(
                 }
             },
             enabled = childName.isNotBlank() && selectedToy != null,
-            modifier = Modifier.fillMaxWidth().height(54.dp),
+            interactionSource = interactionSource,
+            modifier = Modifier.fillMaxWidth().height(54.dp).graphicsLayer(scaleX = scale, scaleY = scale),
             colors = ButtonDefaults.buttonColors(containerColor = if (childName.isNotBlank() && selectedToy != null) IntenseGreen else Color(0xFF333333)),
             shape = RoundedCornerShape(27.dp),
             border = if(childName.isNotBlank() && selectedToy != null) buttonBorder else null
@@ -231,10 +269,77 @@ fun HomeScreen(
                                 lastUpdateTimestamp = System.currentTimeMillis()
                             )) 
                         } 
+                    },
+                    onPaidToggle = { paid ->
+                        scope.launch {
+                            db.sessionDao().insertSession(session.copy(isPaid = paid))
+                        }
                     }
                 )
             }
         }
+    }
+
+    // DIÁLOGO DE TEMPO ESGOTADO (NÍVEL RAIZ PARA PERSISTÊNCIA)
+    val expiredSession = activeSessionsFromDb.find { it.remainingSeconds <= 0 && !it.isFinished && !it.isPaused }
+    if (expiredSession != null) {
+        val currentVal = expiredSession.calculateCurrentProportionalValue()
+        AlertDialog(
+            onDismissRequest = { },
+            properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false),
+            containerColor = if(isLightMode) Color.White else Color(0xFF1A1A1A),
+            title = { Text("TEMPO ESGOTADO!", color = Color.Red, fontWeight = FontWeight.ExtraBold, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth()) },
+            text = {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+                    Text(expiredSession.personName.uppercase(), color = if(isLightMode) Color.Black else Color.White, fontWeight = FontWeight.Bold, fontSize = 22.sp)
+                    Text(expiredSession.toyName.uppercase(), color = IntenseGreen, fontWeight = FontWeight.Bold, fontSize = 16.sp, modifier = Modifier.padding(top = 4.dp))
+                    Text("VALOR A PAGAR:", color = Color.Red, fontSize = 13.sp, modifier = Modifier.padding(top = 8.dp), fontWeight = FontWeight.Black)
+                    Text("R$ %.2f".format(currentVal), color = IntenseGreen, fontWeight = FontWeight.Black, fontSize = 48.sp, style = highlightStyle)
+                }
+            },
+            confirmButton = {
+                Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Button(
+                        onClick = { 
+                            scope.launch {
+                                val updated = expiredSession.copy(
+                                    totalValueAccumulated = expiredSession.totalValueAccumulated + expiredSession.toyPrice,
+                                    elapsedSecondsInCurrentCycle = 0,
+                                    remainingSeconds = (expiredSession.toyTimeMinutes * 60).toLong(),
+                                    notified = false,
+                                    lastUpdateTimestamp = System.currentTimeMillis()
+                                )
+                                db.sessionDao().insertSession(updated)
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth().height(52.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = IntenseGreen, contentColor = Color.Black),
+                        shape = RoundedCornerShape(26.dp),
+                        border = if(isLightMode) BorderStroke(1.dp, Color.Black.copy(alpha = 0.5f)) else null
+                    ) {
+                        Text("CONTINUAR (MAIS ${expiredSession.toyTimeMinutes} MIN)", fontWeight = FontWeight.ExtraBold)
+                    }
+                    Button(
+                        onClick = { 
+                            scope.launch {
+                                val finalSession = expiredSession.copy(
+                                    isFinished = true, 
+                                    endTime = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date()),
+                                    totalValueAccumulated = currentVal
+                                )
+                                db.sessionDao().insertSession(finalSession)
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth().height(52.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF6200EE)),
+                        shape = RoundedCornerShape(26.dp),
+                        border = if(isLightMode) BorderStroke(1.dp, Color.Black.copy(alpha = 0.5f)) else null
+                    ) {
+                        Text("ENCERRAR E SALVAR", fontWeight = FontWeight.ExtraBold, color = Color.White)
+                    }
+                }
+            }
+        )
     }
 
     if (showDuplicateNameDialog) {
@@ -291,7 +396,11 @@ fun HomeScreen(
                                         IconButton(onClick = { 
                                             if(printerMac.isNotEmpty()) BluetoothPrinterHelper.printEntranceTicket(printerMac, session, printerSize, logoBase64, appName) 
                                         }) { Icon(Icons.Default.Print, null, tint = IntenseGreen) }
-                                        IconButton(onClick = { scope.launch { db.sessionDao().deleteSession(session) } }) { Icon(Icons.Default.Delete, null, tint = Color.Red) }
+                                        if (isAdmin) {
+                                            IconButton(onClick = { scope.launch { db.sessionDao().deleteSession(session) } }) { 
+                                                Icon(Icons.Default.Delete, null, tint = Color.Red) 
+                                            }
+                                        }
                                     }
                                 }
                                 HorizontalDivider(color = secondaryColor.copy(alpha = 0.5f))
@@ -328,6 +437,7 @@ fun HomeScreen(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun ActiveTimerItemUI(
     session: PlaySession,
@@ -341,33 +451,206 @@ fun ActiveTimerItemUI(
     onFinish: (PlaySession) -> Unit,
     onContinue: (PlaySession) -> Unit,
     onToyChanged: (PlaySession) -> Unit,
-    onPauseToggle: (Boolean, Boolean) -> Unit
+    onPauseToggle: (Boolean, Boolean) -> Unit,
+    onPaidToggle: (Boolean) -> Unit
 ) {
     var showOptions by remember { mutableStateOf(false) }
     var showSwapPicker by remember { mutableStateOf(false) }
     var showPauseDialog by remember { mutableStateOf(false) }
     var showResetDialog by remember { mutableStateOf<Toy?>(null) }
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     
-    val isExpired = session.remainingSeconds == 0L
+    // NOVO ESTADO: Controla se forçamos a visualização do cronômetro original mesmo estando pago
+    var forceOriginalTimer by rememberSaveable { mutableStateOf(false) }
+    
+    val isExpired = session.remainingSeconds <= 0L
+    val isLowTime = session.remainingSeconds > 0 && session.remainingSeconds < 60L
     val currentVal = session.calculateCurrentProportionalValue()
     val highlightStyle = getHighlightStyle(isLightMode)
+    val density = LocalDensity.current
 
-    Card(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp).pointerInput(Unit) { detectTapGestures(onDoubleTap = { showOptions = true }) }.border(1.dp, if(session.isPaused) Color.Gray else if(isExpired) Color.Red else if(isLightMode) Color.Black else Color.Yellow, RoundedCornerShape(16.dp)),
-        colors = CardDefaults.cardColors(containerColor = if(isLightMode) Color(0xFFF0F0F0) else Color.Transparent),
-        shape = RoundedCornerShape(16.dp)
+    // Contador local para os 3 cliques de confirmação
+    var paymentClicks by remember { mutableIntStateOf(0) }
+    val cashPlayer = remember { MediaPlayer.create(context, R.raw.caixa) }
+
+    // ESTADO DE SWIPE (DESLIZAR)
+    val swipeState = remember {
+        AnchoredDraggableState(
+            initialValue = DragAnchors.Center,
+            anchors = DraggableAnchors {
+                DragAnchors.Start at -with(density) { 150.dp.toPx() }
+                DragAnchors.Center at 0f
+                DragAnchors.End at with(density) { 150.dp.toPx() }
+            },
+            positionalThreshold = { distance: Float -> distance * 0.5f },
+            velocityThreshold = { with(density) { 100.dp.toPx() } },
+            snapAnimationSpec = spring(),
+            decayAnimationSpec = exponentialDecay()
+        )
+    }
+    
+    val currentOffset = try { swipeState.requireOffset() } catch (_: Exception) { 0f }
+
+    // Se o pagamento for cancelado externamente, resetamos a visualização forçada
+    LaunchedEffect(session.isPaid) {
+        if (!session.isPaid) forceOriginalTimer = false
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 6.dp)
+            .clip(RoundedCornerShape(16.dp))
     ) {
-        Row(modifier = Modifier.padding(16.dp).fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(session.personName.uppercase(), color = if(session.isPaused) Color.Gray else IntenseGreen, fontWeight = FontWeight.Black, fontSize = 18.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, style = highlightStyle)
-                Text(session.toyName, color = if(isLightMode) Color.Black else Color.White, fontSize = 14.sp, fontWeight = if(isLightMode) FontWeight.Bold else FontWeight.Normal)
-                Text("VALOR: R$ %.2f".format(currentVal), color = if(session.isPaused) Color.Gray else if(isLightMode) Color.Black else Color.Yellow, fontWeight = FontWeight.ExtraBold, fontSize = 14.sp)
-                if(session.isPaused) Text(if(session.isToyReleased) "PAUSADO (BRINQUEDO LIBERADO)" else "PAUSADO", color = Color.Red, fontSize = 10.sp, fontWeight = FontWeight.ExtraBold)
+        // FUNDO: ÁREA DE AÇÃO REVELADA
+        val bgColorActionLeft = if (session.isPaid) Color(0xFF2E7D32) else IntenseGreen
+        val bgColorActionRight = if (forceOriginalTimer) Color(0xFF2E7D32) else IntenseGreen
+
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(
+                    when {
+                        currentOffset < 0 -> bgColorActionLeft
+                        currentOffset > 0 -> bgColorActionRight
+                        else -> Color.Transparent
+                    }
+                )
+                .padding(horizontal = 16.dp),
+            contentAlignment = if (currentOffset < 0) Alignment.CenterEnd else Alignment.CenterStart
+        ) {
+            if (currentOffset < 0) {
+                // ÁREA DE PAGAMENTO/EXCLUSÃO
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                    modifier = Modifier.fillMaxHeight().width(130.dp)
+                ) {
+                    if (!session.isPaid) {
+                        Text("CONFIRMAR (3X)", color = Color.Black, fontWeight = FontWeight.Black, fontSize = 10.sp)
+                        Spacer(Modifier.height(4.dp))
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable {
+                                    paymentClicks++
+                                    if (paymentClicks >= 3) {
+                                        try { cashPlayer?.start() } catch (_: Exception) {}
+                                        onPaidToggle(true)
+                                        paymentClicks = 0
+                                        scope.launch { swipeState.animateTo(DragAnchors.Center) }
+                                    }
+                                }
+                                .padding(8.dp)
+                        ) {
+                            repeat(3) { index ->
+                                Icon(Icons.Default.MonetizationOn, null, tint = if (index < paymentClicks) Color.Black else Color.Black.copy(alpha = 0.3f), modifier = Modifier.size(28.dp))
+                            }
+                        }
+                    } else {
+                        Text("PAGO ANTECIPADO", color = Color.White, fontWeight = FontWeight.Black, fontSize = 11.sp)
+                        Spacer(Modifier.height(8.dp))
+                        Button(
+                            onClick = { 
+                                onPaidToggle(false)
+                                scope.launch { swipeState.animateTo(DragAnchors.Center) }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color.Red),
+                            modifier = Modifier.height(32.dp),
+                            shape = RoundedCornerShape(16.dp)
+                        ) {
+                            Icon(Icons.Default.Delete, null, tint = Color.White, modifier = Modifier.size(14.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("EXCLUIR", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            } else if (currentOffset > 0) {
+                // ÁREA DE VOLTAR (MOSTRAR O CRONÔMETRO OU PAGAMENTO)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(if (forceOriginalTimer) Icons.Default.MonetizationOn else Icons.Default.Timer, null, tint = Color.Black)
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        if (forceOriginalTimer) "VER PAGAMENTO" else "VER CRONÔMETRO",
+                        color = Color.Black,
+                        fontWeight = FontWeight.Black,
+                        fontSize = 12.sp
+                    )
+                }
             }
-            Spacer(Modifier.width(8.dp))
-            val min = session.remainingSeconds / 60
-            val sec = session.remainingSeconds % 60
-            Text("%02d:%02d".format(min, sec), color = if(session.isPaused) Color.Gray else if(isExpired) Color.Red else IntenseGreen, fontWeight = FontWeight.Black, fontSize = 28.sp, style = if(!isExpired && !session.isPaused) highlightStyle else TextStyle.Default)
+        }
+
+        // Determina se mostramos a visualização de "Pago" ou a visualização "Original"
+        val shouldShowPaidUI = session.isPaid && !forceOriginalTimer
+
+        // CONTEÚDO DO CARD
+        Card(
+            modifier = Modifier
+                .offset { IntOffset(x = currentOffset.roundToInt(), y = 0) }
+                .anchoredDraggable(swipeState, orientation = Orientation.Horizontal)
+                .fillMaxWidth()
+                .pointerInput(Unit) { detectTapGestures(onDoubleTap = { showOptions = true }) }
+                .border(
+                    width = if(session.isPaid) 2.dp else 1.dp,
+                    brush = if(session.isPaid) Brush.linearGradient(listOf(IntenseGreen, Color.Yellow)) else Brush.linearGradient(listOf(if(session.isPaused) Color.Gray else if(isExpired || isLowTime) Color.Red else if(isLightMode) Color.Black else Color.Yellow, if(session.isPaused) Color.Gray else if(isExpired || isLowTime) Color.Red else if(isLightMode) Color.Black else Color.Yellow)),
+                    shape = RoundedCornerShape(16.dp)
+                ),
+            colors = CardDefaults.cardColors(
+                containerColor = if(shouldShowPaidUI) {
+                    if(isLightMode) Color(0xFFE8F5E9) else Color(0xFF0A1F0C)
+                } else {
+                    if(isLightMode) Color(0xFFF0F0F0) else Color.Black
+                }
+            ),
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            Row(modifier = Modifier.padding(16.dp).fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(session.personName.uppercase(), color = if(session.isPaused) Color.Gray else IntenseGreen, fontWeight = FontWeight.Black, fontSize = 18.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, style = highlightStyle)
+                    
+                    if (shouldShowPaidUI) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
+                            Icon(Icons.Default.CheckCircle, null, tint = IntenseGreen, modifier = Modifier.size(20.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("PAGAMENTO ANTECIPADO", color = IntenseGreen, fontWeight = FontWeight.ExtraBold, fontSize = 15.sp)
+                        }
+                        Text("R$ %.2f".format(currentVal), color = if(isLightMode) Color.Black else Color.White, fontWeight = FontWeight.Black, fontSize = 16.sp)
+                    } else {
+                        // CRONÔMETRO ORIGINAL (Mesmo se estiver pago, mas a visualização original for forçada)
+                        Text(session.toyName, color = if(isLightMode) Color.Black else Color.White, fontSize = 14.sp, fontWeight = if(isLightMode) FontWeight.Bold else FontWeight.Normal)
+                        Text("VALOR: R$ %.2f".format(currentVal), color = if(session.isPaused) Color.Gray else if(isExpired || isLowTime) Color.Red else if(isLightMode) Color.Black else Color.Yellow, fontWeight = FontWeight.ExtraBold, fontSize = 14.sp)
+                        if(session.isPaused) Text(if(session.isToyReleased) "PAUSADO (BRINQUEDO LIBERADO)" else "PAUSADO", color = Color.Red, fontSize = 10.sp, fontWeight = FontWeight.ExtraBold)
+                        
+                        // Pequeno aviso se estiver pago mas mostrando o cronômetro
+                        if (session.isPaid && forceOriginalTimer) {
+                            Text("PAGAMENTO CONFIRMADO", color = IntenseGreen, fontSize = 9.sp, fontWeight = FontWeight.Black)
+                        }
+                    }
+                }
+                
+                if (!shouldShowPaidUI) {
+                    Spacer(Modifier.width(8.dp))
+                    val min = session.remainingSeconds / 60
+                    val sec = session.remainingSeconds % 60
+                    Text("%02d:%02d".format(min, sec), color = if(session.isPaused) Color.Gray else if(isExpired || isLowTime) Color.Red else IntenseGreen, fontWeight = FontWeight.Black, fontSize = 28.sp, style = if(!isExpired && !session.isPaused && !isLowTime) highlightStyle else TextStyle.Default)
+                } else {
+                    MoneyAnimation(isLightMode)
+                }
+            }
+        }
+    }
+
+    // Lógica de detecção de fim de movimento
+    LaunchedEffect(swipeState.currentValue) {
+        if (swipeState.currentValue == DragAnchors.Center) {
+            paymentClicks = 0
+        }
+        // Ao atingir o final do deslize para a direita, alternamos a visualização e voltamos ao centro
+        if (swipeState.currentValue == DragAnchors.End) {
+            forceOriginalTimer = !forceOriginalTimer
+            scope.launch { swipeState.animateTo(DragAnchors.Center) }
         }
     }
 
@@ -378,12 +661,20 @@ fun ActiveTimerItemUI(
             title = { Text("LIBERAR BRINQUEDO?", color = IntenseGreen, fontWeight = FontWeight.Bold) },
             text = { Text("Deseja liberar o brinquedo '${session.toyName}' para outra criança enquanto o tempo está pausado?", color = if(isLightMode) Color.Black else Color.White) },
             confirmButton = {
-                TextButton(onClick = { onPauseToggle(true, true); showPauseDialog = false; showOptions = false }) {
+                TextButton(onClick = { 
+                    onPauseToggle(true, true)
+                    showPauseDialog = false
+                    showOptions = false 
+                }) {
                     Text("SIM (LIBERAR)", color = IntenseGreen, fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
-                TextButton(onClick = { onPauseToggle(true, false); showPauseDialog = false; showOptions = false }) {
+                TextButton(onClick = { 
+                    onPauseToggle(true, false)
+                    showPauseDialog = false
+                    showOptions = false 
+                }) {
                     Text("NÃO (RESERVAR)", color = if(isLightMode) Color.Black else Color.Gray, fontWeight = FontWeight.Bold)
                 }
             }
@@ -432,44 +723,6 @@ fun ActiveTimerItemUI(
         )
     }
 
-    if (isExpired && !session.isFinished && !session.isPaused) {
-        AlertDialog(
-            onDismissRequest = { },
-            properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false),
-            containerColor = if(isLightMode) Color.White else Color(0xFF1A1A1A),
-            title = { Text("TEMPO ESGOTADO!", color = Color.Red, fontWeight = FontWeight.ExtraBold, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth()) },
-            text = {
-                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
-                    Text(session.personName.uppercase(), color = if(isLightMode) Color.Black else Color.White, fontWeight = FontWeight.Bold, fontSize = 22.sp)
-                    Text("VALOR A PAGAR:", color = if(isLightMode) Color.DarkGray else Color.White, fontSize = 13.sp, modifier = Modifier.padding(top = 8.dp), fontWeight = FontWeight.Black)
-                    Text("R$ %.2f".format(currentVal), color = IntenseGreen, fontWeight = FontWeight.Black, fontSize = 48.sp, style = highlightStyle)
-                }
-            },
-            confirmButton = {
-                Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Button(
-                        onClick = { onContinue(session) },
-                        modifier = Modifier.fillMaxWidth().height(52.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = IntenseGreen, contentColor = Color.Black),
-                        shape = RoundedCornerShape(26.dp),
-                        border = if(isLightMode) BorderStroke(1.dp, Color.Black.copy(alpha = 0.5f)) else null
-                    ) {
-                        Text("CONTINUAR (MAIS ${session.toyTimeMinutes} MIN)", fontWeight = FontWeight.ExtraBold)
-                    }
-                    Button(
-                        onClick = { onFinish(session) },
-                        modifier = Modifier.fillMaxWidth().height(52.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF6200EE)),
-                        shape = RoundedCornerShape(26.dp),
-                        border = if(isLightMode) BorderStroke(1.dp, Color.Black.copy(alpha = 0.5f)) else null
-                    ) {
-                        Text("ENCERRAR E SALVAR", fontWeight = FontWeight.ExtraBold, color = Color.White)
-                    }
-                }
-            }
-        )
-    }
-
     if (showOptions) {
         AlertDialog(
             onDismissRequest = { showOptions = false },
@@ -494,13 +747,25 @@ fun ActiveTimerItemUI(
                     ) {
                         Text(if(session.isPaused) "RETOMAR" else "PAUSAR", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                     }
-                    Button(onClick = { showSwapPicker = true; showOptions = false }, modifier = Modifier.weight(1f).height(50.dp), colors = ButtonDefaults.buttonColors(containerColor = Color.Blue), shape = RoundedCornerShape(25.dp), border = if(isLightMode) BorderStroke(1.dp, Color.Black.copy(alpha = 0.5f)) else null) {
+                    Button(
+                        onClick = { 
+                            showSwapPicker = true
+                            showOptions = false 
+                        }, 
+                        modifier = Modifier.weight(1f).height(50.dp), 
+                        colors = ButtonDefaults.buttonColors(containerColor = Color.Blue), 
+                        shape = RoundedCornerShape(25.dp), 
+                        border = if(isLightMode) BorderStroke(1.dp, Color.Black.copy(alpha = 0.5f)) else null
+                    ) {
                         Text("TROCAR", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                     }
                 }
             },
             dismissButton = { 
-                TextButton(onClick = { onFinish(session); showOptions = false }) { 
+                TextButton(onClick = { 
+                    onFinish(session)
+                    showOptions = false 
+                }) { 
                     Text("ENCERRAR AGORA", color = Color.Red, fontWeight = FontWeight.ExtraBold) 
                 } 
             }
@@ -520,14 +785,72 @@ fun ActiveTimerItemUI(
                             showResetDialog = toy
                             showSwapPicker = false
                         }.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Text(toy.name.uppercase(), color = if(isOccupied) Color.Red else if(isLightMode) Color.Black else Color.White, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Bold); 
+                            Text(toy.name.uppercase(), color = if(isOccupied) Color.Red else if(isLightMode) Color.Black else Color.White, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Bold)
                             if(isOccupied) Text("OCUPADO", color = Color.Red, fontSize = 10.sp, modifier = Modifier.padding(end = 8.dp), fontWeight = FontWeight.Black)
                             Text("R$ %.2f".format(toy.price), color = if(isOccupied) Color.Red else IntenseGreen, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
             },
-            confirmButton = { TextButton(onClick = { showSwapPicker = false }) { Text("VOLTAR", color = IntenseGreen, fontWeight = FontWeight.Bold) } }
+            confirmButton = { 
+                TextButton(onClick = { showSwapPicker = false }) { 
+                    Text("VOLTAR", color = IntenseGreen, fontWeight = FontWeight.Bold) 
+                } 
+            }
+        )
+    }
+}
+
+@Composable
+fun MoneyAnimation(isLightMode: Boolean) {
+    val infiniteTransition = rememberInfiniteTransition(label = "money")
+    val scale by infiniteTransition.animateFloat(
+        initialValue = 0.85f,
+        targetValue = 1.2f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1200, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "scale"
+    )
+    val alpha by infiniteTransition.animateFloat(
+        initialValue = 0.5f,
+        targetValue = 1.0f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1500, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "alpha"
+    )
+    val rotation by infiniteTransition.animateFloat(
+        initialValue = -10f,
+        targetValue = 10f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(2000, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "rotation"
+    )
+
+    val tint = if (isLightMode) Color(0xFF1B5E20) else IntenseGreen
+
+    Box(
+        modifier = Modifier
+            .size(60.dp)
+            .graphicsLayer(scaleX = scale, scaleY = scale, rotationZ = rotation),
+        contentAlignment = Alignment.Center
+    ) {
+        Box(
+            modifier = Modifier
+                .size(40.dp)
+                .graphicsLayer(scaleX = 1.5f, scaleY = 1.5f, alpha = alpha * 0.3f)
+                .background(tint, CircleShape)
+        )
+        Icon(
+            imageVector = Icons.Default.MonetizationOn,
+            contentDescription = null,
+            tint = tint,
+            modifier = Modifier.fillMaxSize()
         )
     }
 }

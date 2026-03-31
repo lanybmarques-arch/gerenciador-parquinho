@@ -102,7 +102,7 @@ fun SettingsScreen(
             Text(
                 text = "CONFIGURAÇÕES", 
                 color = IntenseGreen, 
-                fontSize = 24.sp, // PADRONIZADO PARA 24SP
+                fontSize = 24.sp, 
                 fontWeight = FontWeight.ExtraBold, 
                 style = highlightStyle
             )
@@ -207,6 +207,7 @@ fun SettingsScreen(
         }
 
         Spacer(modifier = Modifier.height(24.dp))
+
         Button(
             onClick = { BluetoothPrinterHelper.printTest(printerMac) { _, m -> Toast.makeText(context, m, Toast.LENGTH_SHORT).show() } }, 
             modifier = Modifier.fillMaxWidth().height(56.dp), 

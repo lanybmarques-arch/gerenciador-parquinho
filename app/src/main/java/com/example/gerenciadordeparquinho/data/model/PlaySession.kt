@@ -23,7 +23,8 @@ data class PlaySession(
     val isFinished: Boolean = false,
     val isPaused: Boolean = false,
     val notified: Boolean = false,
-    val isToyReleased: Boolean = false // Indica se o brinquedo foi liberado durante a pausa
+    val isToyReleased: Boolean = false,
+    val isPaid: Boolean = false // NOVO CAMPO PARA CONTROLE DE PAGAMENTO
 ) {
     fun calculateCurrentProportionalValue(): Double {
         val totalSecondsInCycle = (toyTimeMinutes * 60).toDouble()

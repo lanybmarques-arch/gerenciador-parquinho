@@ -136,6 +136,9 @@ fun AccessManagementScreen(
                     PermissionSwitch("Menu Config", user.canSettings, isLightMode) { 
                         scope.launch { db.userDao().updateUser(user.copy(canSettings = it)) }
                     }
+                    PermissionSwitch("Menu Layout", user.canLayout, isLightMode) { 
+                        scope.launch { db.userDao().updateUser(user.copy(canLayout = it)) }
+                    }
 
                     Spacer(modifier = Modifier.height(24.dp))
 

@@ -11,5 +11,6 @@ data class UserAccount(
     val canRegister: Boolean = true,
     val canReport: Boolean = true,
     val canSettings: Boolean = true,
+    val canLayout: Boolean = true,
     val role: String = "OPERATOR"
 )

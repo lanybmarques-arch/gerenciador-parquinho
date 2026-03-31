@@ -47,8 +47,9 @@ fun LayoutScreen(
     onOutlineColorChange: (Color) -> Unit,
     isLogoLocked: Boolean,
     onLogoLockToggle: (Boolean) -> Unit,
-    logoBase64: String?, // NOVO PARÂMETRO PARA PRÉVIA
+    logoBase64: String?,
     onSelectLogo: () -> Unit,
+    onResetLogo: () -> Unit, // NOVO CALLBACK
     onBack: () -> Unit,
     isLightMode: Boolean = false
 ) {
@@ -96,7 +97,6 @@ fun LayoutScreen(
             verticalArrangement = Arrangement.spacedBy(24.dp)
         ) {
             LayoutSection(title = "IDENTIDADE DA MARCA", isLightMode = isLightMode) {
-                // ÁREA DE PRÉVIA DA LOGO DO LOGIN
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -129,7 +129,7 @@ fun LayoutScreen(
                 Spacer(modifier = Modifier.height(12.dp))
 
                 Button(
-                    onClick = onSelectLogo,
+                    onClick = { if (logoBase64 != null) onResetLogo() else onSelectLogo() },
                     enabled = isAdmin || !isLogoLocked,
                     modifier = Modifier.fillMaxWidth().height(52.dp),
                     colors = ButtonDefaults.buttonColors(
@@ -139,14 +139,14 @@ fun LayoutScreen(
                     border = if(isLogoLocked) BorderStroke(1.dp, Color.Red) else if(isLightMode) BorderStroke(1.dp, Color.Black) else BorderStroke(1.dp, IntenseGreen.copy(alpha = 0.3f))
                 ) {
                     Icon(
-                        imageVector = if (isLogoLocked && !isAdmin) Icons.Default.Lock else Icons.Default.AddAPhoto,
+                        imageVector = if (isLogoLocked && !isAdmin) Icons.Default.Lock else if (logoBase64 != null) Icons.Default.Restore else Icons.Default.AddAPhoto,
                         contentDescription = null,
                         tint = if (isLogoLocked && !isAdmin) Color.Gray else if(isLightMode) Color.Black else IntenseGreen,
                         modifier = Modifier.size(20.dp)
                     )
                     Spacer(Modifier.width(12.dp))
                     Text(
-                        text = if (isLogoLocked && !isAdmin) "ALTERAÇÃO BLOQUEADA" else "TROCAR LOGO (PNG)",
+                        text = if (isLogoLocked && !isAdmin) "ALTERAÇÃO BLOQUEADA" else if (logoBase64 != null) "RESETAR" else "TROCAR LOGO (PNG)",
                         color = if (isLogoLocked && !isAdmin) Color.Gray else if(isLightMode) Color.Black else IntenseGreen,
                         fontWeight = FontWeight.Bold
                     )
