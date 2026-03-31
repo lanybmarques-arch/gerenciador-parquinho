@@ -8,6 +8,7 @@ import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import com.example.gerenciadordeparquinho.MainActivity
+import com.example.gerenciadordeparquinho.R
 import com.example.gerenciadordeparquinho.data.repository.AppDatabase
 import kotlinx.coroutines.*
 import java.text.SimpleDateFormat
@@ -45,7 +46,7 @@ class TimerService : Service() {
         val notification = NotificationCompat.Builder(this, channelId)
             .setContentTitle("Gerenciador de Parquinho")
             .setContentText("Monitorando tempos em tempo real...")
-            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setSmallIcon(R.drawable.logo)
             .setOngoing(true)
             .build()
 
@@ -73,13 +74,10 @@ class TimerService : Service() {
                                 )
                                 
                                 if (newRemaining <= 0 && !session.notified) {
-                                    // 1. DISPARA NOTIFICAÇÃO NO TOPO
+                                    // DISPARA NOTIFICAÇÃO NO TOPO
                                     showAlertNotification(session.personName, session.toyName)
                                     
-                                    // 2. CALCULA O VALOR ATUAL (PROPORCIONAL)
                                     val currentVal = updatedSession.calculateCurrentProportionalValue()
-
-                                    // 3. VERIFICA IMPRESSÃO AUTOMÁTICA DE SAÍDA
                                     val autoPrintExit = sharedPrefs.getBoolean("auto_print_exit", false)
                                     val printerMac = sharedPrefs.getString("last_printer_mac", "") ?: ""
                                     val printerSize = sharedPrefs.getString("last_printer_size", "58mm") ?: "58mm"
@@ -111,14 +109,18 @@ class TimerService : Service() {
     }
 
     private fun showAlertNotification(name: String, toy: String) {
-        val channelId = "TIMER_CHANNEL"
+        val channelId = "TIMER_CHANNEL_ALERT" // Novo ID para forçar recriação com prioridade alta
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(channelId, "Alertas de Tempo", NotificationManager.IMPORTANCE_HIGH).apply {
+            val channel = NotificationChannel(channelId, "Alertas Urgentes", NotificationManager.IMPORTANCE_HIGH).apply {
+                description = "Notificações de tempo esgotado"
+                enableLights(true)
+                lightColor = android.graphics.Color.RED
                 enableVibration(true)
-                vibrationPattern = longArrayOf(0, 800, 200, 800)
-                setBypassDnd(true) // Pula o Não Perturbe se permitido
+                vibrationPattern = longArrayOf(0, 1000, 500, 1000)
+                setLockscreenVisibility(Notification.VISIBILITY_PUBLIC)
+                setBypassDnd(true)
             }
             manager.createNotificationChannel(channel)
         }
@@ -126,17 +128,17 @@ class TimerService : Service() {
         val intent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
         }
-        val pendingIntent = PendingIntent.getActivity(this, 0, intent, PendingIntent.FLAG_IMMUTABLE)
+        val pendingIntent = PendingIntent.getActivity(this, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
 
         val builder = NotificationCompat.Builder(this, channelId)
-            .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
+            .setSmallIcon(R.drawable.logo)
             .setContentTitle("TEMPO ESGOTADO!")
             .setContentText("O TEMPO DE ${name.uppercase()} NO ${toy.uppercase()} ACABOU!")
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
-            .setVibrate(longArrayOf(0, 800, 200, 800))
-            .setContentIntent(pendingIntent)
-            .setFullScreenIntent(pendingIntent, true) // FORÇA O POP-UP NO TOPO (Heads-up)
+            .setVibrate(longArrayOf(0, 1000, 500, 1000))
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setFullScreenIntent(pendingIntent, true) // Força o pop-up (Heads-up)
             .setAutoCancel(true)
             .setDefaults(NotificationCompat.DEFAULT_ALL)
 
