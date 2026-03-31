@@ -55,14 +55,30 @@ dependencies {
     implementation("androidx.compose.material:material-icons-extended")
     implementation(libs.androidx.navigation.compose)
     
-    // --- ROOM DATABASE RELIGADO ---
+    // --- ROOM DATABASE ---
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
-    ksp(libs.androidx.room.compiler) // Religando o motor de banco de dados
+    ksp(libs.androidx.room.compiler)
 
     implementation(platform("com.google.firebase:firebase-bom:33.7.0"))
     implementation("com.google.firebase:firebase-firestore-ktx")
     implementation("com.google.firebase:firebase-database-ktx")
+
+    // --- CAMERAX & ML KIT ---
+    val camerax_version = "1.4.0"
+    implementation("androidx.camera:camera-core:${camerax_version}")
+    implementation("androidx.camera:camera-camera2:${camerax_version}")
+    implementation("androidx.camera:camera-lifecycle:${camerax_version}")
+    implementation("androidx.camera:camera-view:${camerax_version}")
+    implementation("com.google.mlkit:barcode-scanning:17.3.0")
+    
+    // --- QR CODE GENERATION ---
+    implementation("com.google.zxing:core:3.5.3")
+    
+    // CORREÇÃO PARA ListenableFuture E CONFLITOS DE CLASSPATH
+    implementation("com.google.guava:guava:33.0.0-android")
+    implementation("com.google.guava:listenablefuture:9999.0-empty-to-avoid-conflict-with-guava")
+    implementation("androidx.concurrent:concurrent-futures-ktx:1.2.0")
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

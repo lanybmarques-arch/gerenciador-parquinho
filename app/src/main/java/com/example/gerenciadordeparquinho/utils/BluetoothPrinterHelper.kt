@@ -6,11 +6,15 @@ import android.bluetooth.BluetoothSocket
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.Paint
 import android.os.Handler
 import android.os.Looper
 import android.util.Base64
 import com.example.gerenciadordeparquinho.data.model.PlaySession
+import com.google.zxing.BarcodeFormat
+import com.google.zxing.MultiFormatWriter
+import com.google.zxing.common.BitMatrix
 import java.io.OutputStream
 import java.text.SimpleDateFormat
 import java.util.*
@@ -45,6 +49,24 @@ object BluetoothPrinterHelper {
         } catch (e: Exception) { null }
     }
 
+    private fun generateQRCodeBitmap(content: String, size: Int): Bitmap? {
+        return try {
+            val bitMatrix: BitMatrix = MultiFormatWriter().encode(content, BarcodeFormat.QR_CODE, size, size)
+            val width = bitMatrix.width
+            val height = bitMatrix.height
+            val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.RGB_565)
+            for (x in 0 until width) {
+                for (y in 0 until height) {
+                    bitmap.setPixel(x, y, if (bitMatrix.get(x, y)) Color.BLACK else Color.WHITE)
+                }
+            }
+            bitmap
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
+    }
+
     private fun printBitmap(out: OutputStream, originalBitmap: Bitmap, size: String) {
         val width = if (size == "58mm") 384 else 576
         val ratio = width.toFloat() / originalBitmap.width
@@ -52,7 +74,7 @@ object BluetoothPrinterHelper {
 
         val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
-        canvas.drawColor(android.graphics.Color.WHITE) 
+        canvas.drawColor(Color.WHITE) 
 
         val scaledSrc = Bitmap.createScaledBitmap(originalBitmap, width, height, true)
         canvas.drawBitmap(scaledSrc, 0f, 0f, null)
@@ -129,16 +151,13 @@ object BluetoothPrinterHelper {
                 out.write(BOLD_ON)
                 out.write(DOUBLE_STRIKE_ON)
                 
-                // CLIENTE (LINHA 1: RÓTULO | LINHA 2: NOME)
-                out.write(TALL_FONT) // REDUZIDO PARA 1x2 CONFORME SOLICITADO
+                out.write(TALL_FONT) 
                 out.write("CLIENTE\n".toByteArray(Charsets.ISO_8859_1))
                 out.write("${session.personName.uppercase()}\n\n".toByteArray(Charsets.ISO_8859_1))
                 
-                // BRINQUEDO (LINHA 1: RÓTULO | LINHA 2: NOME)
                 out.write("BRINQUEDO\n".toByteArray(Charsets.ISO_8859_1))
                 out.write("${session.toyName.uppercase()}\n\n".toByteArray(Charsets.ISO_8859_1))
                 
-                // VALOR, INICIO E FIM (MANTIDO 2x2 ORIGINAL CONFORME SOLICITADO)
                 out.write(BIG_FONT)
                 val valToPrint = if (session.isFinished) session.totalValueAccumulated else session.toyPrice
                 out.write("VALOR: R$ %.2f\n".format(valToPrint).toByteArray(Charsets.ISO_8859_1))
@@ -166,6 +185,61 @@ object BluetoothPrinterHelper {
                 runOnMainThread { onResult(true, "Impresso com sucesso!") }
             } catch (e: Exception) {
                 runOnMainThread { onResult(false, "Erro: ${e.message}") }
+            } finally {
+                try { socket?.close() } catch (e: Exception) {}
+            }
+        }.start()
+    }
+
+    @SuppressLint("MissingPermission")
+    fun printSTRQRCode(
+        macAddress: String,
+        session: PlaySession,
+        size: String = "58mm",
+        onResult: (Boolean, String) -> Unit = { _, _ -> }
+    ) {
+        if (macAddress.isEmpty()) return
+        Thread {
+            var socket: BluetoothSocket? = null
+            try {
+                val adapter = BluetoothAdapter.getDefaultAdapter() ?: throw Exception("Bluetooth não disponível")
+                val device = adapter.getRemoteDevice(macAddress)
+                socket = device.createRfcommSocketToServiceRecord(PRINTER_UUID)
+                socket.connect()
+                val out = socket.outputStream
+
+                out.write(RESET)
+                out.write(CENTER)
+                
+                out.write(BOLD_ON)
+                out.write(DOUBLE_STRIKE_ON)
+                out.write(BIG_FONT)
+                out.write("SDR - REGISTRO\n\n".toByteArray(Charsets.ISO_8859_1))
+                out.write(BOLD_OFF)
+                out.write(DOUBLE_STRIKE_OFF)
+
+                // Conteúdo: ID|NOME (Sem valor)
+                val qrContent = "${session.id}|${session.personName.uppercase()}"
+                
+                // GERA QR CODE COMO IMAGEM (BITMAP) - Ocupando quase toda a largura
+                val qrSizePx = if (size == "58mm") 300 else 450
+                generateQRCodeBitmap(qrContent, qrSizePx)?.let { qrBitmap ->
+                    printBitmap(out, qrBitmap, size)
+                }
+
+                out.write("\n".toByteArray())
+                out.write(CENTER)
+                out.write(BOLD_ON)
+                out.write(TALL_FONT)
+                out.write("CLIENTE: ${session.personName.uppercase()}\n".toByteArray(Charsets.ISO_8859_1))
+                out.write(BOLD_OFF)
+                
+                out.write(NORMAL_FONT)
+                out.write("\n--------------------------------\n\n\n\n\n".toByteArray())
+                out.flush()
+                runOnMainThread { onResult(true, "QR Code SDR impresso!") }
+            } catch (e: Exception) {
+                runOnMainThread { onResult(false, "Erro SDR: ${e.message}") }
             } finally {
                 try { socket?.close() } catch (e: Exception) {}
             }
@@ -290,6 +364,7 @@ object BluetoothPrinterHelper {
                 if (!customMessage.isNullOrBlank()) {
                     out.write(CENTER)
                     out.write(BOLD_ON)
+                    out.write(DOUBLE_STRIKE_ON)
                     out.write(BIG_FONT)
                     out.write("$customMessage\n\n".toByteArray(Charsets.ISO_8859_1))
                 }

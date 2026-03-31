@@ -15,6 +15,9 @@ interface SessionDao {
     @Query("SELECT * FROM play_sessions WHERE isFinished = 0 AND isCancelled = 0")
     suspend fun getActiveSessionsList(): List<PlaySession>
 
+    @Query("SELECT * FROM play_sessions WHERE id = :id LIMIT 1")
+    suspend fun getSessionById(id: String): PlaySession?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertSession(session: PlaySession)
 

@@ -54,7 +54,6 @@ class MainActivity : ComponentActivity() {
             val context = LocalContext.current
             val sharedPrefs = remember { context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE) }
             
-            // Carrega o tema salvo ou usa DARK como padrão
             val savedTheme = sharedPrefs.getString("app_theme", AppThemeMode.DARK.name) ?: AppThemeMode.DARK.name
             var themeMode by rememberSaveable { mutableStateOf(AppThemeMode.valueOf(savedTheme)) }
             
@@ -94,7 +93,6 @@ fun MainApp(themeMode: AppThemeMode, onThemeChange: (AppThemeMode) -> Unit) {
     var loggedUser by remember { mutableStateOf<UserAccount?>(null) }
     var isSoundEnabled by rememberSaveable { mutableStateOf(sharedPrefs.getBoolean("is_sound_enabled", true)) }
     
-    // TEXTOS E PERSISTÊNCIA
     var loginTitle by remember { mutableStateOf(sharedPrefs.getString("login_title", "BRINCANDO NA PRAÇA") ?: "BRINCANDO NA PRAÇA") }
     var printerMessage by remember { mutableStateOf(sharedPrefs.getString("printer_message", "") ?: "") }
     
@@ -103,23 +101,20 @@ fun MainApp(themeMode: AppThemeMode, onThemeChange: (AppThemeMode) -> Unit) {
     var outlineColorArgb by remember { mutableIntStateOf(sharedPrefs.getInt("outline_color", Color.Black.toArgb())) }
     var isLogoLocked by remember { mutableStateOf(sharedPrefs.getBoolean("is_logo_locked", false)) }
     
-    // LOGOS
     var loginLogoBase64 by remember { mutableStateOf(sharedPrefs.getString("login_logo_base64", null)) }
     var printerLogoBase64 by remember { mutableStateOf(sharedPrefs.getString("printer_logo_base64", null)) }
     
-    // SWITCHES PERSISTIDOS
     var showLogoInLogin by remember { mutableStateOf(sharedPrefs.getBoolean("show_logo_login", false)) }
     var showPrinterLogo by remember { mutableStateOf(sharedPrefs.getBoolean("show_printer_logo", false)) }
     var showPrinterMessage by remember { mutableStateOf(sharedPrefs.getBoolean("show_printer_message", false)) }
     
-    // NOVOS SWITCHES DE TICKET AUTOMÁTICO (ENTRADA E SAÍDA)
     var autoPrintEntrance by remember { mutableStateOf(sharedPrefs.getBoolean("auto_print_entrance", false)) }
     var autoPrintExit by remember { mutableStateOf(sharedPrefs.getBoolean("auto_print_exit", false)) }
+    var autoPrintSDR by remember { mutableStateOf(sharedPrefs.getBoolean("auto_print_sdr", false)) }
     
     var printerMac by rememberSaveable { mutableStateOf(sharedPrefs.getString("last_printer_mac", "") ?: "") }
     var printerSize by rememberSaveable { mutableStateOf(sharedPrefs.getString("last_printer_size", "58mm") ?: "58mm") }
 
-    // LOGICA DE AUTO-LOGIN
     LaunchedEffect(Unit) {
         val stayLogged = sharedPrefs.getBoolean("stay_logged_in", false)
         val savedUser = sharedPrefs.getString("saved_username", "") ?: ""
@@ -267,6 +262,11 @@ fun MainApp(themeMode: AppThemeMode, onThemeChange: (AppThemeMode) -> Unit) {
                         onAutoPrintExitChange = {
                             autoPrintExit = it
                             sharedPrefs.edit().putBoolean("auto_print_exit", it).apply()
+                        },
+                        autoPrintSDR = autoPrintSDR,
+                        onAutoPrintSDRChange = {
+                            autoPrintSDR = it
+                            sharedPrefs.edit().putBoolean("auto_print_sdr", it).apply()
                         },
                         isAdmin = isAdmin
                     )

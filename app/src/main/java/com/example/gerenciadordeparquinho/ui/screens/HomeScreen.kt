@@ -72,6 +72,8 @@ fun HomeScreen(
     onAutoPrintEntranceChange: (Boolean) -> Unit = {},
     autoPrintExit: Boolean = false,
     onAutoPrintExitChange: (Boolean) -> Unit = {},
+    autoPrintSDR: Boolean = false,
+    onAutoPrintSDRChange: (Boolean) -> Unit = {},
     isAdmin: Boolean = false
 ) {
     val context = LocalContext.current
@@ -175,10 +177,15 @@ fun HomeScreen(
                 Checkbox(checked = autoPrintEntrance, onCheckedChange = onAutoPrintEntranceChange, colors = CheckboxDefaults.colors(checkedColor = IntenseGreen, checkmarkColor = Color.Black))
                 Text("Entrada", color = textColor, fontSize = 14.sp, fontWeight = if(isLightMode) FontWeight.Bold else FontWeight.Normal)
                 
-                Spacer(modifier = Modifier.width(20.dp))
+                Spacer(modifier = Modifier.width(12.dp))
                 
                 Checkbox(checked = autoPrintExit, onCheckedChange = onAutoPrintExitChange, colors = CheckboxDefaults.colors(checkedColor = IntenseGreen, checkmarkColor = Color.Black))
                 Text("Saída", color = textColor, fontSize = 14.sp, fontWeight = if(isLightMode) FontWeight.Bold else FontWeight.Normal)
+
+                Spacer(modifier = Modifier.width(12.dp))
+
+                Checkbox(checked = autoPrintSDR, onCheckedChange = onAutoPrintSDRChange, colors = CheckboxDefaults.colors(checkedColor = IntenseGreen, checkmarkColor = Color.Black))
+                Text("SDR", color = textColor, fontSize = 14.sp, fontWeight = if(isLightMode) FontWeight.Bold else FontWeight.Normal)
             }
         }
 
@@ -207,8 +214,12 @@ fun HomeScreen(
                     )
                     scope.launch { 
                         db.sessionDao().insertSession(newSession)
+                        
                         if (autoPrintEntrance && printerMac.isNotEmpty()) {
                             BluetoothPrinterHelper.printEntranceTicket(printerMac, newSession, printerSize, logoBase64, appName)
+                        }
+                        if (autoPrintSDR && printerMac.isNotEmpty()) {
+                            BluetoothPrinterHelper.printSTRQRCode(printerMac, newSession, printerSize)
                         }
                     }
                     childName = ""; selectedToy = null
@@ -301,6 +312,7 @@ fun HomeScreen(
                 Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Button(
                         onClick = { 
+                            try { if (mediaPlayer.isPlaying) { mediaPlayer.pause(); mediaPlayer.seekTo(0) } } catch (_: Exception) {}
                             scope.launch {
                                 val updated = expiredSession.copy(
                                     totalValueAccumulated = expiredSession.totalValueAccumulated + expiredSession.toyPrice,
@@ -321,6 +333,7 @@ fun HomeScreen(
                     }
                     Button(
                         onClick = { 
+                            try { if (mediaPlayer.isPlaying) { mediaPlayer.pause(); mediaPlayer.seekTo(0) } } catch (_: Exception) {}
                             scope.launch {
                                 val finalSession = expiredSession.copy(
                                     isFinished = true, 
@@ -437,7 +450,7 @@ fun HomeScreen(
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ActiveTimerItemUI(
     session: PlaySession,
@@ -474,19 +487,25 @@ fun ActiveTimerItemUI(
     var paymentClicks by remember { mutableIntStateOf(0) }
     val cashPlayer = remember { MediaPlayer.create(context, R.raw.caixa) }
 
-    // ESTADO DE SWIPE (DESLIZAR)
+    // ESTADO DE SWIPE (DESLIZAR) CORRIGIDO PARA NOVA API
     val swipeState = remember {
-        AnchoredDraggableState(
+        AnchoredDraggableState<DragAnchors>(
             initialValue = DragAnchors.Center,
-            anchors = DraggableAnchors {
-                DragAnchors.Start at -with(density) { 150.dp.toPx() }
-                DragAnchors.Center at 0f
-                DragAnchors.End at with(density) { 150.dp.toPx() }
-            },
             positionalThreshold = { distance: Float -> distance * 0.5f },
             velocityThreshold = { with(density) { 100.dp.toPx() } },
             snapAnimationSpec = spring(),
             decayAnimationSpec = exponentialDecay()
+        )
+    }
+
+    // Atualização dos âncoras (necessário para compilar sem erro)
+    SideEffect {
+        swipeState.updateAnchors(
+            DraggableAnchors {
+                DragAnchors.Start at -with(density) { 150.dp.toPx() }
+                DragAnchors.Center at 0f
+                DragAnchors.End at with(density) { 150.dp.toPx() }
+            }
         )
     }
     
