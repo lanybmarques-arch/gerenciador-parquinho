@@ -223,13 +223,15 @@ fun HomeScreen(
             onClick = {
                 try { clickPlayer?.start() } catch (_: Exception) {}
                 
-                val exists = activeSessionsFromDb.any { it.personName.equals(childName.trim(), ignoreCase = true) }
-                if (exists) {
+                val currentChildName = childName.trim() // CAPTURA O NOME EM VARIÁVEL FIXA
+                val existsInList = activeSessionsFromDb.any { it.personName.equals(currentChildName, ignoreCase = true) }
+                
+                if (existsInList) {
                     showDuplicateNameDialog = true
                 } else {
                     val t = selectedToy!!
                     val newSession = PlaySession(
-                        personName = childName,
+                        personName = currentChildName,
                         toyName = t.name,
                         toyPrice = t.price,
                         toyTimeMinutes = t.timeMinutes,
@@ -237,12 +239,17 @@ fun HomeScreen(
                         lastUpdateTimestamp = System.currentTimeMillis()
                     )
                     scope.launch { 
+                        // Verificação precisa de registro anterior no dia usando a variável fixa
+                        val alreadyRegisteredToday = db.sessionDao().getSessionsByPersonNameAndDate(currentChildName, newSession.date).isNotEmpty()
+                        
                         db.sessionDao().insertSession(newSession)
                         
                         if (autoPrintEntrance && printerMac.isNotEmpty()) {
                             BluetoothPrinterHelper.printEntranceTicket(printerMac, newSession, printerSize, logoBase64, appName)
                         }
-                        if (autoPrintSDR && printerMac.isNotEmpty()) {
+                        
+                        // REGRA SDR: Imprime APENAS se for o primeiro registro do dia para este nome
+                        if (autoPrintSDR && printerMac.isNotEmpty() && !alreadyRegisteredToday) {
                             BluetoothPrinterHelper.printSTRQRCode(printerMac, newSession, printerSize)
                         }
                     }
@@ -444,9 +451,19 @@ fun HomeScreen(
                                                 Spacer(Modifier.width(8.dp))
                                                 Text(name, color = textColor, fontWeight = FontWeight.Black, fontSize = 16.sp)
                                             }
-                                            IconButton(onClick = { 
-                                                if(printerMac.isNotEmpty()) BluetoothPrinterHelper.printChildSummary(printerMac, sessions.first().personName, sessions.first().date, sessions, totalValue, printerSize, logoBase64, appName) 
-                                            }) { Icon(Icons.Default.Print, null, tint = IntenseGreen) }
+                                            Row {
+                                                // ÍCONE DE 2ª VIA DO SDR (QR CODE)
+                                                IconButton(onClick = {
+                                                    if(printerMac.isNotEmpty()) {
+                                                        BluetoothPrinterHelper.printSTRQRCode(printerMac, sessions.first(), printerSize)
+                                                    }
+                                                }) { Icon(Icons.Default.QrCode, null, tint = IntenseGreen) }
+
+                                                // ÍCONE DE RESUMO GERAL
+                                                IconButton(onClick = { 
+                                                    if(printerMac.isNotEmpty()) BluetoothPrinterHelper.printChildSummary(printerMac, sessions.first().personName, sessions.first().date, sessions, totalValue, printerSize, logoBase64, appName) 
+                                                }) { Icon(Icons.Default.Print, null, tint = IntenseGreen) }
+                                            }
                                         }
                                         
                                         if (isExpanded) {
@@ -472,7 +489,7 @@ fun HomeScreen(
                     }
                     
                     val diaTotal = ticketsOfDay.sumOf { it.totalValueAccumulated }
-                    Spacer(Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(16.dp))
                     Text("TOTAL GERAL: R$ %.2f".format(diaTotal), color = IntenseGreen, fontWeight = FontWeight.Black, fontSize = 18.sp, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
                 }
             },
@@ -494,7 +511,8 @@ fun HomeScreen(
                         Row(modifier = Modifier.fillMaxWidth().clickable(enabled = !isOccupied) { 
                             selectedToy = toy
                             showToyPicker = false 
-                            if (isPreAutoEnabled) {
+                            // REGRA PRE AUTO: Só ativa o scanner automático se o campo de nome estiver VAZIO
+                            if (isPreAutoEnabled && childName.trim().isEmpty()) {
                                 isPreAutoScannerActive = true
                             }
                         }.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -526,7 +544,7 @@ fun HomeScreen(
                     showScanner = false
                 }
             },
-            isPreAutoMode = isPreAutoScannerActive, // NOVO PARÂMETRO
+            isPreAutoMode = isPreAutoScannerActive,
             autoPrint = autoPrintScannerSummary,
             onAutoPrintChange = onAutoPrintScannerSummaryChange,
             printerMac = printerMac,
