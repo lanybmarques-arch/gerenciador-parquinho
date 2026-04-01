@@ -380,6 +380,12 @@ fun HomeScreen(
     if (showTicketsDialog) {
         var selectedDate by remember { mutableStateOf(SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).format(Date())) }
         val ticketsOfDay by db.sessionDao().getSessionsByDate(selectedDate).collectAsState(initial = emptyList())
+        var expandedChildName by remember { mutableStateOf<String?>(null) }
+
+        // AGRUPAMENTO DOS TICKETS POR NOME
+        val groupedTickets = remember(ticketsOfDay) {
+            ticketsOfDay.groupBy { it.personName.trim().uppercase() }
+        }
 
         AlertDialog(
             onDismissRequest = { showTicketsDialog = false },
@@ -401,33 +407,57 @@ fun HomeScreen(
             },
             text = {
                 Column {
-                    LazyColumn(modifier = Modifier.heightIn(max = 400.dp)) {
-                        items(ticketsOfDay) { session ->
-                            val wasEndedEarly = session.remainingSeconds > 0 && session.isFinished
-                            Column {
-                                Row(modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(session.personName.uppercase(), color = textColor, fontWeight = FontWeight.Bold, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                        Text(session.toyName.uppercase(), color = secondaryColor, fontSize = 11.sp, fontWeight = if(isLightMode) FontWeight.Bold else FontWeight.Normal)
-                                        if (wasEndedEarly) {
-                                            Text("ENCERRADO ANTECIPADAMENTE", color = Color.Red, fontSize = 10.sp, fontWeight = FontWeight.Black)
+                    LazyColumn(modifier = Modifier.heightIn(max = 450.dp)) {
+                        groupedTickets.forEach { (name, sessions) ->
+                            item {
+                                val totalValue = sessions.sumOf { it.totalValueAccumulated }
+                                val isExpanded = expandedChildName == name
+                                
+                                Card(
+                                    modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp).clickable { 
+                                        expandedChildName = if (isExpanded) null else name 
+                                    },
+                                    colors = CardDefaults.cardColors(containerColor = if(isLightMode) Color(0xFFF5F5F5) else Color(0xFF222222)),
+                                    shape = RoundedCornerShape(12.dp),
+                                    border = if(isLightMode) BorderStroke(1.dp, Color.Black.copy(alpha = 0.1f)) else null
+                                ) {
+                                    Column(modifier = Modifier.padding(12.dp)) {
+                                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                                Icon(if(isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, null, tint = IntenseGreen, modifier = Modifier.size(20.dp))
+                                                Spacer(Modifier.width(8.dp))
+                                                Text(name, color = textColor, fontWeight = FontWeight.Black, fontSize = 16.sp)
+                                            }
+                                            IconButton(onClick = { 
+                                                if(printerMac.isNotEmpty()) BluetoothPrinterHelper.printChildSummary(printerMac, sessions.first().personName, sessions.first().date, sessions, totalValue, printerSize, logoBase64, appName) 
+                                            }) { Icon(Icons.Default.Print, null, tint = IntenseGreen) }
                                         }
-                                    }
-                                    Row {
-                                        IconButton(onClick = { 
-                                            if(printerMac.isNotEmpty()) BluetoothPrinterHelper.printEntranceTicket(printerMac, session, printerSize, logoBase64, appName) 
-                                        }) { Icon(Icons.Default.Print, null, tint = IntenseGreen) }
-                                        if (isAdmin) {
-                                            IconButton(onClick = { scope.launch { db.sessionDao().deleteSession(session) } }) { 
-                                                Icon(Icons.Default.Delete, null, tint = Color.Red) 
+                                        
+                                        if (isExpanded) {
+                                            Spacer(Modifier.height(8.dp))
+                                            sessions.forEach { s ->
+                                                Row(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                                                    Text(s.toyName.uppercase(), color = secondaryColor, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                    Text("R$ %.2f".format(s.totalValueAccumulated), color = if(s.isPaid) IntenseGreen else Color.Red, fontSize = 11.sp, fontWeight = FontWeight.Black)
+                                                }
+                                            }
+                                            
+                                            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp), color = textColor.copy(alpha = 0.1f))
+                                            
+                                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                                Text("TOTAL DO DIA:", color = textColor, fontSize = 12.sp, fontWeight = FontWeight.ExtraBold)
+                                                Text("R$ %.2f".format(totalValue), color = textColor, fontSize = 14.sp, fontWeight = FontWeight.Black)
                                             }
                                         }
                                     }
                                 }
-                                HorizontalDivider(color = secondaryColor.copy(alpha = 0.5f))
                             }
                         }
                     }
+                    
+                    val diaTotal = ticketsOfDay.sumOf { it.totalValueAccumulated }
+                    Spacer(Modifier.height(16.dp))
+                    Text("TOTAL GERAL: R$ %.2f".format(diaTotal), color = IntenseGreen, fontWeight = FontWeight.Black, fontSize = 18.sp, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
                 }
             },
             confirmButton = { TextButton(onClick = { showTicketsDialog = false }) { Text("FECHAR", color = IntenseGreen, fontWeight = FontWeight.Bold) } }
