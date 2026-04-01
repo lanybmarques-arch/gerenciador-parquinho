@@ -218,11 +218,12 @@ object BluetoothPrinterHelper {
                 out.write(BOLD_OFF)
                 out.write(DOUBLE_STRIKE_OFF)
 
-                // Conteúdo: ID|NOME (Sem valor)
-                val qrContent = "${session.id}|${session.personName.uppercase()}"
+                // Conteúdo CONSISTENTE por dia: SDR|NOME|DATA
+                // Isso garante QR codes diferentes em dias diferentes
+                val qrContent = "SDR|${session.personName.trim().uppercase()}|${session.date}"
                 
-                // GERA QR CODE COMO IMAGEM (BITMAP) - Ocupando quase toda a largura
-                val qrSizePx = if (size == "58mm") 300 else 450
+                // GERA QR CODE COMO IMAGEM (BITMAP)
+                val qrSizePx = if (size == "58mm") 350 else 500
                 generateQRCodeBitmap(qrContent, qrSizePx)?.let { qrBitmap ->
                     printBitmap(out, qrBitmap, size)
                 }
@@ -232,6 +233,7 @@ object BluetoothPrinterHelper {
                 out.write(BOLD_ON)
                 out.write(TALL_FONT)
                 out.write("CLIENTE: ${session.personName.uppercase()}\n".toByteArray(Charsets.ISO_8859_1))
+                out.write("DATA: ${session.date}\n".toByteArray(Charsets.ISO_8859_1))
                 out.write(BOLD_OFF)
                 
                 out.write(NORMAL_FONT)
@@ -250,6 +252,7 @@ object BluetoothPrinterHelper {
     fun printChildSummary(
         macAddress: String,
         childName: String,
+        date: String,
         history: List<PlaySession>,
         total: Double,
         size: String = "58mm",
@@ -290,8 +293,7 @@ object BluetoothPrinterHelper {
                 out.write(BIG_FONT)
                 out.write("RESUMO PARA\n${childName.uppercase()}\n".toByteArray(Charsets.ISO_8859_1))
                 out.write(NORMAL_FONT)
-                val dateStr = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).format(Date())
-                out.write("DATA: $dateStr\n\n".toByteArray(Charsets.ISO_8859_1))
+                out.write("DATA: $date\n\n".toByteArray(Charsets.ISO_8859_1))
 
                 out.write(CENTER)
                 out.write(BOLD_ON)
@@ -303,7 +305,10 @@ object BluetoothPrinterHelper {
                     out.write("${session.toyName.uppercase()}\n".toByteArray(Charsets.ISO_8859_1))
 
                     out.write("INI: ${session.startTime} | FIM: ${session.endTime ?: "--:--:--"}\n".toByteArray(Charsets.ISO_8859_1))
-                    out.write("VALOR: R$ %.2f\n".format(session.totalValueAccumulated).toByteArray(Charsets.ISO_8859_1))
+                    val valShow = if(session.isFinished) session.totalValueAccumulated else session.calculateCurrentProportionalValue()
+                    out.write("VALOR: R$ %.2f\n".format(valShow).toByteArray(Charsets.ISO_8859_1))
+                    if(session.isPaid) out.write("SITUAÇÃO: PAGO ANTECIPADO\n".toByteArray(Charsets.ISO_8859_1))
+                    
                     out.write(NORMAL_FONT)
                     out.write("--------------------------------\n".toByteArray())
                     out.write(TALL_FONT)
@@ -315,7 +320,7 @@ object BluetoothPrinterHelper {
                 out.write(CENTER)
                 out.write(BOLD_ON)
                 out.write(BIG_FONT)
-                out.write("TOTAL GERAL: R$ %.2f\n".format(total).toByteArray(Charsets.ISO_8859_1))
+                out.write("SALDO A PAGAR: R$ %.2f\n".format(total).toByteArray(Charsets.ISO_8859_1))
                 
                 out.write(NORMAL_FONT)
                 out.write(BOLD_OFF)

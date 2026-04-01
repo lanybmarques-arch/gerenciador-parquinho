@@ -74,6 +74,8 @@ fun HomeScreen(
     onAutoPrintExitChange: (Boolean) -> Unit = {},
     autoPrintSDR: Boolean = false,
     onAutoPrintSDRChange: (Boolean) -> Unit = {},
+    autoPrintScannerSummary: Boolean = false,
+    onAutoPrintScannerSummaryChange: (Boolean) -> Unit = {},
     isAdmin: Boolean = false
 ) {
     val context = LocalContext.current
@@ -91,6 +93,7 @@ fun HomeScreen(
     var showToyPicker by remember { mutableStateOf(false) }
     var showTicketsDialog by remember { mutableStateOf(false) }
     var showDuplicateNameDialog by remember { mutableStateOf(false) }
+    var showScanner by remember { mutableStateOf(false) }
     
     val toys by db.toyDao().getAllToys().collectAsState(initial = emptyList())
     val activeSessionsFromDb by db.sessionDao().getActiveSessions().collectAsState(initial = emptyList())
@@ -139,8 +142,13 @@ fun HomeScreen(
     Column(modifier = Modifier.fillMaxSize().background(bgColor).padding(16.dp)) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Text(appName.uppercase(), color = IntenseGreen, fontSize = 22.sp, fontWeight = FontWeight.Black, style = highlightStyle)
-            IconButton(onClick = { showTicketsDialog = true }) {
-                Icon(Icons.Default.ConfirmationNumber, null, tint = IntenseGreen, modifier = Modifier.size(28.dp))
+            Row {
+                IconButton(onClick = { showScanner = true }) {
+                    Icon(Icons.Default.QrCodeScanner, null, tint = IntenseGreen, modifier = Modifier.size(28.dp))
+                }
+                IconButton(onClick = { showTicketsDialog = true }) {
+                    Icon(Icons.Default.ConfirmationNumber, null, tint = IntenseGreen, modifier = Modifier.size(28.dp))
+                }
             }
         }
 
@@ -446,6 +454,23 @@ fun HomeScreen(
                 }
             },
             confirmButton = { TextButton(onClick = { showToyPicker = false }) { Text("FECHAR", color = IntenseGreen, fontWeight = FontWeight.Bold) } }
+        )
+    }
+
+    if (showScanner) {
+        QRScannerScreen(
+            onClose = { showScanner = false },
+            onScanResult = { qrData -> 
+                showScanner = false
+                // Lógica de processamento do resultado do scan aqui
+            },
+            autoPrint = autoPrintScannerSummary,
+            onAutoPrintChange = onAutoPrintScannerSummaryChange,
+            printerMac = printerMac,
+            printerSize = printerSize,
+            logoBase64 = logoBase64,
+            appName = appName,
+            isLightMode = isLightMode
         )
     }
 }

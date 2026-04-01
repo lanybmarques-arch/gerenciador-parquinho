@@ -18,6 +18,10 @@ interface SessionDao {
     @Query("SELECT * FROM play_sessions WHERE id = :id LIMIT 1")
     suspend fun getSessionById(id: String): PlaySession?
 
+    // BUSCA ROBUSTA: Ignora espaços extras e diferença de maiúsculas/minúsculas
+    @Query("SELECT * FROM play_sessions WHERE TRIM(UPPER(personName)) = UPPER(:name) AND date = :date")
+    suspend fun getSessionsByPersonNameAndDate(name: String, date: String): List<PlaySession>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertSession(session: PlaySession)
 

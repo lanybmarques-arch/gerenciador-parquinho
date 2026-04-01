@@ -57,13 +57,20 @@ class MainActivity : ComponentActivity() {
             val savedTheme = sharedPrefs.getString("app_theme", AppThemeMode.DARK.name) ?: AppThemeMode.DARK.name
             var themeMode by rememberSaveable { mutableStateOf(AppThemeMode.valueOf(savedTheme)) }
             
-            val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+            val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { }
             
             LaunchedEffect(Unit) {
+                val permissions = mutableListOf<String>()
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                     if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-                        permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                        permissions.add(Manifest.permission.POST_NOTIFICATIONS)
                     }
+                }
+                if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+                    permissions.add(Manifest.permission.CAMERA)
+                }
+                if (permissions.isNotEmpty()) {
+                    permissionLauncher.launch(permissions.toTypedArray())
                 }
             }
 
@@ -111,6 +118,7 @@ fun MainApp(themeMode: AppThemeMode, onThemeChange: (AppThemeMode) -> Unit) {
     var autoPrintEntrance by remember { mutableStateOf(sharedPrefs.getBoolean("auto_print_entrance", false)) }
     var autoPrintExit by remember { mutableStateOf(sharedPrefs.getBoolean("auto_print_exit", false)) }
     var autoPrintSDR by remember { mutableStateOf(sharedPrefs.getBoolean("auto_print_sdr", false)) }
+    var autoPrintScannerSummary by remember { mutableStateOf(sharedPrefs.getBoolean("auto_print_scanner_summary", false)) }
     
     var printerMac by rememberSaveable { mutableStateOf(sharedPrefs.getString("last_printer_mac", "") ?: "") }
     var printerSize by rememberSaveable { mutableStateOf(sharedPrefs.getString("last_printer_size", "58mm") ?: "58mm") }
@@ -267,6 +275,11 @@ fun MainApp(themeMode: AppThemeMode, onThemeChange: (AppThemeMode) -> Unit) {
                         onAutoPrintSDRChange = {
                             autoPrintSDR = it
                             sharedPrefs.edit().putBoolean("auto_print_sdr", it).apply()
+                        },
+                        autoPrintScannerSummary = autoPrintScannerSummary,
+                        onAutoPrintScannerSummaryChange = {
+                            autoPrintScannerSummary = it
+                            sharedPrefs.edit().putBoolean("auto_print_scanner_summary", it).apply()
                         },
                         isAdmin = isAdmin
                     )

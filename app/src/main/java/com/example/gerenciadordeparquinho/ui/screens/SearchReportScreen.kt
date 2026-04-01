@@ -140,6 +140,7 @@ fun SearchReportScreen(
                         BluetoothPrinterHelper.printChildSummary(
                             macAddress = printerMac,
                             childName = if(childName.isEmpty()) "TODOS" else childName,
+                            date = selectedDate,
                             history = sessionsForPrint,
                             total = totalGeralExato,
                             size = printerSize,
