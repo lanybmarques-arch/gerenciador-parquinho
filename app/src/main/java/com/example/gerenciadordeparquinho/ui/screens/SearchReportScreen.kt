@@ -140,7 +140,7 @@ fun SearchReportScreen(
                         BluetoothPrinterHelper.printChildSummary(
                             macAddress = printerMac,
                             childName = if(childName.isEmpty()) "TODOS" else childName,
-                            date = selectedDate,
+                            date = selectedDate, // CORREÇÃO AQUI
                             history = sessionsForPrint,
                             total = totalGeralExato,
                             size = printerSize,
@@ -185,7 +185,7 @@ fun SearchReportScreen(
 
         Card(
             modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = if(isLightMode) Color(0xFFF5F5F5) else Color.Transparent),
+            colors = CardDefaults.cardColors(containerColor = if(isLightMode) Color(0xFFF5F5F5) else Color(0xFF1A1A1A)), // Ajuste de cor
             border = BorderStroke(1.dp, if(isLightMode) Color.Black else IntenseGreen),
             shape = RoundedCornerShape(16.dp)
         ) {

@@ -119,6 +119,7 @@ fun MainApp(themeMode: AppThemeMode, onThemeChange: (AppThemeMode) -> Unit) {
     var autoPrintExit by remember { mutableStateOf(sharedPrefs.getBoolean("auto_print_exit", false)) }
     var autoPrintSDR by remember { mutableStateOf(sharedPrefs.getBoolean("auto_print_sdr", false)) }
     var autoPrintScannerSummary by remember { mutableStateOf(sharedPrefs.getBoolean("auto_print_scanner_summary", false)) }
+    var isPreAutoEnabled by remember { mutableStateOf(sharedPrefs.getBoolean("is_pre_auto_enabled", false)) }
     
     var printerMac by rememberSaveable { mutableStateOf(sharedPrefs.getString("last_printer_mac", "") ?: "") }
     var printerSize by rememberSaveable { mutableStateOf(sharedPrefs.getString("last_printer_size", "58mm") ?: "58mm") }
@@ -280,6 +281,11 @@ fun MainApp(themeMode: AppThemeMode, onThemeChange: (AppThemeMode) -> Unit) {
                         onAutoPrintScannerSummaryChange = {
                             autoPrintScannerSummary = it
                             sharedPrefs.edit().putBoolean("auto_print_scanner_summary", it).apply()
+                        },
+                        isPreAutoEnabled = isPreAutoEnabled,
+                        onPreAutoToggle = {
+                            isPreAutoEnabled = it
+                            sharedPrefs.edit().putBoolean("is_pre_auto_enabled", it).apply()
                         },
                         isAdmin = isAdmin
                     )

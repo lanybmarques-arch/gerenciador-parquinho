@@ -43,6 +43,7 @@ import java.util.concurrent.Executors
 fun QRScannerScreen(
     onClose: () -> Unit,
     onScanResult: (String) -> Unit,
+    isPreAutoMode: Boolean = false,
     autoPrint: Boolean,
     onAutoPrintChange: (Boolean) -> Unit,
     printerMac: String,
@@ -62,6 +63,7 @@ fun QRScannerScreen(
     var isFlashOn by remember { mutableStateOf(false) }
     var cameraControl by remember { mutableStateOf<CameraControl?>(null) }
 
+    // Animação da linha de scanner
     val infiniteTransition = rememberInfiniteTransition(label = "scannerLine")
     val lineOffset by infiniteTransition.animateFloat(
         initialValue = 0.2f,
@@ -86,7 +88,7 @@ fun QRScannerScreen(
                         it.setSurfaceProvider(previewView.surfaceProvider)
                     }
 
-                    // CORREÇÃO: Usando Barcode.FORMAT_QR_CODE para o Scanner
+                    // Otimizado apenas para QR Code
                     val options = BarcodeScannerOptions.Builder()
                         .setBarcodeFormats(Barcode.FORMAT_QR_CODE)
                         .build()
@@ -106,7 +108,7 @@ fun QRScannerScreen(
                                     for (barcode in barcodes) {
                                         barcode.rawValue?.let { qrData ->
                                             if (showResultDialog == null && !showNotFoundDialog) {
-                                                // Vibrar ao detectar (Compatível com todas APIs)
+                                                // Vibrar ao detectar
                                                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                                                     vibrator.vibrate(VibrationEffect.createOneShot(50, VibrationEffect.DEFAULT_AMPLITUDE))
                                                 } else {
@@ -114,25 +116,21 @@ fun QRScannerScreen(
                                                     vibrator.vibrate(50)
                                                 }
                                                 
-                                                scope.launch {
-                                                    val summary = processQRData(qrData, db)
-                                                    if (summary != null) {
-                                                        showResultDialog = summary
-                                                        if (autoPrint && printerMac.isNotEmpty()) {
-                                                            // CORREÇÃO: Ordem dos argumentos para bater com o Helper
-                                                            BluetoothPrinterHelper.printChildSummary(
-                                                                printerMac, 
-                                                                summary.name, 
-                                                                summary.date, 
-                                                                summary.sessions, 
-                                                                summary.totalToPay, 
-                                                                printerSize, 
-                                                                logoBase64, 
-                                                                appName
-                                                            )
+                                                if (isPreAutoMode) {
+                                                    onScanResult(qrData)
+                                                } else {
+                                                    scope.launch {
+                                                        val summary = processQRData(qrData, db)
+                                                        if (summary != null) {
+                                                            showResultDialog = summary
+                                                            if (autoPrint && printerMac.isNotEmpty()) {
+                                                                BluetoothPrinterHelper.printChildSummary(
+                                                                    printerMac, summary.name, summary.date, summary.sessions, summary.totalToPay, printerSize, logoBase64, appName
+                                                                )
+                                                            }
+                                                        } else if (qrData.startsWith("SDR|")) {
+                                                            showNotFoundDialog = true
                                                         }
-                                                    } else if (qrData.startsWith("SDR|")) {
-                                                        showNotFoundDialog = true
                                                     }
                                                 }
                                             }
@@ -161,24 +159,35 @@ fun QRScannerScreen(
             modifier = Modifier.fillMaxSize()
         )
 
+        // Overlay do Scanner (Mira Profissional)
         Canvas(modifier = Modifier.fillMaxSize()) {
             val width = size.width
             val height = size.height
             val boxSize = width * 0.7f
             val left = (width - boxSize) / 2
             val top = (height - boxSize) / 2
+
+            // Desenhar os cantos da mira
             val cornerLen = 40.dp.toPx()
             val strokeWidth = 4.dp.toPx()
             
+            // Top Left
             drawLine(IntenseGreen, Offset(left, top), Offset(left + cornerLen, top), strokeWidth)
             drawLine(IntenseGreen, Offset(left, top), Offset(left, top + cornerLen), strokeWidth)
+            
+            // Top Right
             drawLine(IntenseGreen, Offset(left + boxSize, top), Offset(left + boxSize - cornerLen, top), strokeWidth)
             drawLine(IntenseGreen, Offset(left + boxSize, top), Offset(left + boxSize, top + cornerLen), strokeWidth)
+            
+            // Bottom Left
             drawLine(IntenseGreen, Offset(left, top + boxSize), Offset(left + cornerLen, top + boxSize), strokeWidth)
             drawLine(IntenseGreen, Offset(left, top + boxSize), Offset(left, top + boxSize - cornerLen), strokeWidth)
+            
+            // Bottom Right
             drawLine(IntenseGreen, Offset(left + boxSize, top + boxSize), Offset(left + boxSize - cornerLen, top + boxSize), strokeWidth)
             drawLine(IntenseGreen, Offset(left + boxSize, top + boxSize), Offset(left + boxSize, top + boxSize - cornerLen), strokeWidth)
 
+            // Desenhar linha de scan laser
             val currentLineY = top + (boxSize * lineOffset)
             drawLine(
                 color = IntenseGreen.copy(alpha = 0.7f),
@@ -188,6 +197,7 @@ fun QRScannerScreen(
             )
         }
 
+        // Barra Superior
         Row(
             modifier = Modifier.fillMaxWidth().padding(16.dp).statusBarsPadding(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -196,7 +206,7 @@ fun QRScannerScreen(
             IconButton(onClick = onClose, modifier = Modifier.background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(12.dp))) {
                 Icon(Icons.Default.Close, null, tint = Color.White)
             }
-            Text("SCANNER SDR", color = Color.White, fontWeight = FontWeight.Black, fontSize = 18.sp)
+            Text(if (isPreAutoMode) "AUTO PREENCHER" else "SCANNER SDR", color = Color.White, fontWeight = FontWeight.Black, fontSize = 18.sp)
             IconButton(
                 onClick = { 
                     isFlashOn = !isFlashOn
@@ -208,30 +218,34 @@ fun QRScannerScreen(
             }
         }
 
-        Card(
-            modifier = Modifier.align(Alignment.BottomCenter).padding(24.dp).fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = Color.Black.copy(alpha = 0.8f)),
-            shape = RoundedCornerShape(20.dp),
-            border = BorderStroke(1.dp, IntenseGreen.copy(alpha = 0.5f))
-        ) {
-            Row(
-                modifier = Modifier.padding(16.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+        // Controle de Impressão Automática (Inferior) - Apenas se NÃO for PreAuto
+        if (!isPreAutoMode) {
+            Card(
+                modifier = Modifier.align(Alignment.BottomCenter).padding(24.dp).fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = Color.Black.copy(alpha = 0.8f)),
+                shape = RoundedCornerShape(20.dp),
+                border = BorderStroke(1.dp, IntenseGreen.copy(alpha = 0.5f))
             ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("IMPRESSÃO AUTOMÁTICA", color = IntenseGreen, fontSize = 12.sp, fontWeight = FontWeight.Black)
-                    Text("Imprimir ao ler QR Code", color = Color.LightGray, fontSize = 10.sp)
+                Row(
+                    modifier = Modifier.padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("IMPRESSÃO AUTOMÁTICA", color = IntenseGreen, fontSize = 12.sp, fontWeight = FontWeight.Black)
+                        Text("Imprimir ao ler QR Code", color = Color.LightGray, fontSize = 10.sp)
+                    }
+                    Switch(
+                        checked = autoPrint,
+                        onCheckedChange = onAutoPrintChange,
+                        colors = SwitchDefaults.colors(checkedThumbColor = IntenseGreen, checkedTrackColor = IntenseGreen.copy(alpha = 0.5f))
+                    )
                 }
-                Switch(
-                    checked = autoPrint,
-                    onCheckedChange = onAutoPrintChange,
-                    colors = SwitchDefaults.colors(checkedThumbColor = IntenseGreen, checkedTrackColor = IntenseGreen.copy(alpha = 0.5f))
-                )
             }
         }
     }
 
+    // Dialog de Resultado (Resumo Detalhado)
     if (showResultDialog != null) {
         val summary = showResultDialog!!
         AlertDialog(
@@ -288,7 +302,6 @@ fun QRScannerScreen(
                 Button(
                     onClick = { 
                         if (printerMac.isNotEmpty()) {
-                            // CORREÇÃO: Passando summary.date na posição correta
                             BluetoothPrinterHelper.printChildSummary(
                                 printerMac, summary.name, summary.date, summary.sessions, summary.totalToPay, printerSize, logoBase64, appName
                             )
@@ -311,6 +324,7 @@ fun QRScannerScreen(
         )
     }
 
+    // Dialog de Não Encontrado
     if (showNotFoundDialog) {
         AlertDialog(
             onDismissRequest = { showNotFoundDialog = false },

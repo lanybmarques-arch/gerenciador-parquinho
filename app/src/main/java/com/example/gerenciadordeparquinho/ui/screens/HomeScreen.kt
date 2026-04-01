@@ -76,6 +76,8 @@ fun HomeScreen(
     onAutoPrintSDRChange: (Boolean) -> Unit = {},
     autoPrintScannerSummary: Boolean = false,
     onAutoPrintScannerSummaryChange: (Boolean) -> Unit = {},
+    isPreAutoEnabled: Boolean = false,
+    onPreAutoToggle: (Boolean) -> Unit = {},
     isAdmin: Boolean = false
 ) {
     val context = LocalContext.current
@@ -94,6 +96,7 @@ fun HomeScreen(
     var showTicketsDialog by remember { mutableStateOf(false) }
     var showDuplicateNameDialog by remember { mutableStateOf(false) }
     var showScanner by remember { mutableStateOf(false) }
+    var isPreAutoScannerActive by remember { mutableStateOf(false) }
     
     val toys by db.toyDao().getAllToys().collectAsState(initial = emptyList())
     val activeSessionsFromDb by db.sessionDao().getActiveSessions().collectAsState(initial = emptyList())
@@ -172,9 +175,22 @@ fun HomeScreen(
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        Box(modifier = Modifier.fillMaxWidth().height(56.dp).clip(RoundedCornerShape(12.dp)).background(if (isLightMode) Color(0xFFF0F0F0) else Color(0xFF1A1A1A)).clickable { showToyPicker = true }.border(1.dp, if (selectedToy != null) IntenseGreen else secondaryColor, RoundedCornerShape(12.dp)).padding(horizontal = 16.dp), contentAlignment = Alignment.CenterStart) {
-            Text(selectedToy?.name?.uppercase() ?: "SELECIONAR BRINQUEDO", color = if (selectedToy != null) textColor else secondaryColor, fontWeight = FontWeight.Bold)
-            Icon(Icons.Default.ArrowDropDown, null, tint = IntenseGreen, modifier = Modifier.align(Alignment.CenterEnd))
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            Box(modifier = Modifier.weight(1f).height(56.dp).clip(RoundedCornerShape(12.dp)).background(if (isLightMode) Color(0xFFF0F0F0) else Color(0xFF1A1A1A)).clickable { showToyPicker = true }.border(1.dp, if (selectedToy != null) IntenseGreen else secondaryColor, RoundedCornerShape(12.dp)).padding(horizontal = 16.dp), contentAlignment = Alignment.CenterStart) {
+                Text(selectedToy?.name?.uppercase() ?: "ESCOLHA O BRINQUEDO", color = if (selectedToy != null) textColor else secondaryColor, fontWeight = FontWeight.Bold)
+                Icon(Icons.Default.ArrowDropDown, null, tint = IntenseGreen, modifier = Modifier.align(Alignment.CenterEnd))
+            }
+            
+            Spacer(modifier = Modifier.width(12.dp))
+            
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("PRE AUTO", color = secondaryColor, fontSize = 10.sp, fontWeight = FontWeight.Black)
+                Switch(
+                    checked = isPreAutoEnabled,
+                    onCheckedChange = onPreAutoToggle,
+                    colors = SwitchDefaults.colors(checkedThumbColor = IntenseGreen, checkedTrackColor = IntenseGreen.copy(alpha = 0.5f))
+                )
+            }
         }
 
         Spacer(modifier = Modifier.height(12.dp))
@@ -475,7 +491,13 @@ fun HomeScreen(
                         val isOccupied = !toy.isAlwaysFree && activeSessionsFromDb.any { 
                             it.toyName == toy.name && !it.isFinished && !it.isToyReleased 
                         }
-                        Row(modifier = Modifier.fillMaxWidth().clickable(enabled = !isOccupied) { selectedToy = toy; showToyPicker = false }.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Row(modifier = Modifier.fillMaxWidth().clickable(enabled = !isOccupied) { 
+                            selectedToy = toy
+                            showToyPicker = false 
+                            if (isPreAutoEnabled) {
+                                isPreAutoScannerActive = true
+                            }
+                        }.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                             Text(toy.name.uppercase(), color = if(isOccupied) Color.Red else textColor, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                             if(isOccupied) Text("OCUPADO", color = Color.Red, fontSize = 10.sp, modifier = Modifier.padding(end = 8.dp), fontWeight = FontWeight.Black)
                             Text("R$ %.2f".format(toy.price), color = if(isOccupied) Color.Red else IntenseGreen, fontWeight = FontWeight.Bold)
@@ -487,13 +509,24 @@ fun HomeScreen(
         )
     }
 
-    if (showScanner) {
+    if (showScanner || isPreAutoScannerActive) {
         QRScannerScreen(
-            onClose = { showScanner = false },
-            onScanResult = { qrData -> 
+            onClose = { 
                 showScanner = false
-                // Lógica de processamento do resultado do scan aqui
+                isPreAutoScannerActive = false 
             },
+            onScanResult = { qrData -> 
+                if (isPreAutoScannerActive) {
+                    val parts = qrData.split("|")
+                    if (parts.size >= 2) {
+                        childName = parts[1].trim() // Preenche o nome da criança
+                    }
+                    isPreAutoScannerActive = false
+                } else {
+                    showScanner = false
+                }
+            },
+            isPreAutoMode = isPreAutoScannerActive, // NOVO PARÂMETRO
             autoPrint = autoPrintScannerSummary,
             onAutoPrintChange = onAutoPrintScannerSummaryChange,
             printerMac = printerMac,
