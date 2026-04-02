@@ -256,7 +256,7 @@ fun MainApp(themeMode: AppThemeMode, onThemeChange: (AppThemeMode) -> Unit) {
             } else {
                 when (currentScreen) {
                     "home" -> HomeScreen(
-                        appName = printerMessage, 
+                        appName = loginTitle,
                         isSoundEnabled = isSoundEnabled, 
                         printerMac = printerMac, 
                         printerSize = printerSize, 

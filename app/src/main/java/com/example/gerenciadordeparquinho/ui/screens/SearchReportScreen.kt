@@ -30,6 +30,7 @@ import com.example.gerenciadordeparquinho.data.repository.AppDatabase
 import com.example.gerenciadordeparquinho.ui.theme.IntenseGreen
 import com.example.gerenciadordeparquinho.ui.theme.getHighlightStyle
 import com.example.gerenciadordeparquinho.utils.BluetoothPrinterHelper
+import com.example.gerenciadordeparquinho.utils.normalizeName
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -49,39 +50,46 @@ fun SearchReportScreen(
     val textColor = if (isLightMode) Color.Black else Color.White
     val secondaryColor = if (isLightMode) Color.DarkGray else Color.Gray
     val highlightStyle = getHighlightStyle(isLightMode)
-    val buttonBorder = if (isLightMode) BorderStroke(1.dp, Color.Black.copy(alpha = 0.5f)) else null
 
     var selectedDate by rememberSaveable { mutableStateOf(SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).format(Date())) }
     var childName by rememberSaveable { mutableStateOf("") }
     
     val allSessionsByDate by db.sessionDao().getSessionsByDate(selectedDate).collectAsState(initial = emptyList())
     
-    // LISTA ABAIXO: Mostra todos que começam com o nome digitado (Referência)
+    // LISTA ABAIXO: Normaliza os nomes para garantir que a busca encontre mesmo com acentos
     val filteredSessionsForList = remember(allSessionsByDate, childName) {
         if (childName.isBlank()) {
             allSessionsByDate
         } else {
+            val normalizedSearch = childName.normalizeName()
             allSessionsByDate.filter { 
-                it.personName.startsWith(childName, ignoreCase = true)
+                it.personName.normalizeName().startsWith(normalizedSearch)
             }
         }
     }
     
-    // TOTAL GERAL (RESUMO PARA): Calcula apenas o valor do nome EXATO digitado
+    // CÁLCULOS DE TOTAIS E ABATIMENTOS
     val totalGeralExato = remember(allSessionsByDate, childName) {
-        if (childName.isBlank()) {
-            allSessionsByDate.sumOf { it.totalValueAccumulated }
-        } else {
-            allSessionsByDate.filter { 
-                it.personName.equals(childName.trim(), ignoreCase = true) 
-            }.sumOf { it.totalValueAccumulated }
-        }
+        val normalizedSearch = childName.normalizeName().trim()
+        if (childName.isBlank()) allSessionsByDate.sumOf { it.totalValueAccumulated }
+        else allSessionsByDate.filter { it.personName.normalizeName().trim() == normalizedSearch }.sumOf { it.totalValueAccumulated }
     }
+
+    val totalJaPago = remember(allSessionsByDate, childName) {
+        val normalizedSearch = childName.normalizeName().trim()
+        if (childName.isBlank()) allSessionsByDate.filter { it.isPaid }.sumOf { it.totalValueAccumulated }
+        else allSessionsByDate.filter { it.personName.normalizeName().trim() == normalizedSearch && it.isPaid }.sumOf { it.totalValueAccumulated }
+    }
+
+    val saldoAPagar = (totalGeralExato - totalJaPago).coerceAtLeast(0.0)
 
     // LISTA EXATA PARA IMPRESSÃO DO RESUMO
     val sessionsForPrint = remember(allSessionsByDate, childName) {
         if (childName.isBlank()) allSessionsByDate 
-        else allSessionsByDate.filter { it.personName.equals(childName.trim(), ignoreCase = true) }
+        else {
+            val normalizedSearch = childName.normalizeName().trim()
+            allSessionsByDate.filter { it.personName.normalizeName().trim() == normalizedSearch }
+        }
     }
 
     Column(
@@ -139,14 +147,14 @@ fun SearchReportScreen(
                     if (printerMac.isNotEmpty()) {
                         BluetoothPrinterHelper.printChildSummary(
                             macAddress = printerMac,
-                            childName = if(childName.isEmpty()) "TODOS" else childName,
-                            date = selectedDate, // CORREÇÃO AQUI
+                            childName = childName.ifEmpty { "TODOS" }.normalizeName(),
+                            date = selectedDate, 
                             history = sessionsForPrint,
-                            total = totalGeralExato,
+                            total = saldoAPagar, // IMPRIME O SALDO REAL (TOTAL - JÁ PAGO)
                             size = printerSize,
                             logoBase64 = logoBase64,
                             customMessage = appName,
-                            onResult = { success, msg -> 
+                            onResult = { _, msg -> 
                                 Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
                             }
                         )
@@ -167,7 +175,7 @@ fun SearchReportScreen(
 
         OutlinedTextField(
             value = childName,
-            onValueChange = { childName = it },
+            onValueChange = { childName = it.normalizeName() },
             label = { Text("Nome da Criança", color = if(isLightMode) Color.Black else IntenseGreen) },
             leadingIcon = { Icon(Icons.Default.Person, null, tint = IntenseGreen) },
             modifier = Modifier.fillMaxWidth(),
@@ -185,23 +193,23 @@ fun SearchReportScreen(
 
         Card(
             modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = if(isLightMode) Color(0xFFF5F5F5) else Color(0xFF1A1A1A)), // Ajuste de cor
+            colors = CardDefaults.cardColors(containerColor = if(isLightMode) Color(0xFFF5F5F5) else Color(0xFF1A1A1A)),
             border = BorderStroke(1.dp, if(isLightMode) Color.Black else IntenseGreen),
             shape = RoundedCornerShape(16.dp)
         ) {
             Column(modifier = Modifier.padding(20.dp)) {
                 Text(
-                    text = "RESUMO PARA: ${if(childName.isEmpty()) "TODOS" else childName.uppercase()}",
-                    color = IntenseGreen,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    style = highlightStyle
+                    text = "RESUMO PARA: ${childName.ifEmpty { "TODOS" }.normalizeName()}",
+                    color = IntenseGreen, fontSize = 14.sp, fontWeight = FontWeight.ExtraBold, style = highlightStyle
                 )
+                if (totalJaPago > 0) {
+                    Text("TOTAL BRUTO: R$ %.2f".format(totalGeralExato), color = textColor.copy(alpha = 0.7f), fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    Text("VALORES PAGOS: - R$ %.2f".format(totalJaPago), color = IntenseGreen, fontSize = 14.sp, fontWeight = FontWeight.Black)
+                }
                 Text(
-                    text = "TOTAL GERAL: R$ %.2f".format(totalGeralExato),
-                    color = textColor,
-                    fontSize = 24.sp,
-                    fontWeight = FontWeight.Black
+                    text = "SALDO A PAGAR: R$ %.2f".format(saldoAPagar),
+                    color = if (saldoAPagar > 0) Color.Red else IntenseGreen,
+                    fontSize = 24.sp, fontWeight = FontWeight.Black
                 )
             }
         }
@@ -238,7 +246,13 @@ fun SearchItemUI(session: PlaySession, textColor: Color, secondaryColor: Color, 
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(text = session.personName.uppercase(), color = textColor, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                Text(text = "Início: ${session.startTime} | Fim: ${session.endTime ?: "--:--:--"}", color = secondaryColor, fontSize = 12.sp, fontWeight = if(isLightMode) FontWeight.Bold else FontWeight.Normal)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(text = "Início: ${session.startTime} | Fim: ${session.endTime ?: "--:--:--"}", color = secondaryColor, fontSize = 12.sp, fontWeight = if(isLightMode) FontWeight.Bold else FontWeight.Normal)
+                    if (session.isPaid) {
+                        Spacer(Modifier.width(8.dp))
+                        Text("PAGO", color = IntenseGreen, fontWeight = FontWeight.Black, fontSize = 10.sp, modifier = Modifier.border(1.dp, IntenseGreen, RoundedCornerShape(4.dp)).padding(horizontal = 4.dp))
+                    }
+                }
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(text = "R$ %.2f".format(session.totalValueAccumulated), color = IntenseGreen, fontWeight = FontWeight.Black, fontSize = 16.sp)

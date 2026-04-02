@@ -7,7 +7,6 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
-import android.graphics.Paint
 import android.os.Handler
 import android.os.Looper
 import android.util.Base64
@@ -19,21 +18,24 @@ import java.io.OutputStream
 import java.text.SimpleDateFormat
 import java.util.*
 
+data class PaidItem(
+    val name: String,
+    val quantity: Int,
+    val unitPrice: Double
+)
+
 object BluetoothPrinterHelper {
     private val PRINTER_UUID: UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
 
-    // Comandos ESC/POS
     private val RESET = byteArrayOf(0x1B, 0x40)
     private val CHARSET_16 = byteArrayOf(0x1B, 0x74, 0x10)
     private val BOLD_ON = byteArrayOf(0x1B, 0x45, 0x01)
     private val BOLD_OFF = byteArrayOf(0x1B, 0x45, 0x00)
-    private val DOUBLE_STRIKE_ON = byteArrayOf(0x1B, 0x47, 0x01)
-    private val DOUBLE_STRIKE_OFF = byteArrayOf(0x1B, 0x47, 0x00)
     
-    private val NORMAL_FONT = byteArrayOf(0x1D, 0x21, 0x00) // 1x1
-    private val TALL_FONT = byteArrayOf(0x1D, 0x21, 0x01)   // 1x2 (Dobra altura)
-    private val BIG_FONT = byteArrayOf(0x1D, 0x21, 0x11)    // 2x2 (Dobra largura e altura)
-    private val HUGE_FONT = byteArrayOf(0x1D, 0x21, 0x22)   // 3x3 (Triplica largura e altura)
+    private val NORMAL_FONT = byteArrayOf(0x1D, 0x21, 0x00)
+    private val TALL_FONT = byteArrayOf(0x1D, 0x21, 0x01)
+    private val BIG_FONT = byteArrayOf(0x1D, 0x21, 0x11)
+    private val HUGE_FONT = byteArrayOf(0x1D, 0x21, 0x22)
     
     private val CENTER = byteArrayOf(0x1B, 0x61, 0x01)
     private val LEFT = byteArrayOf(0x1B, 0x61, 0x00)
@@ -61,30 +63,22 @@ object BluetoothPrinterHelper {
                 }
             }
             bitmap
-        } catch (e: Exception) {
-            e.printStackTrace()
-            null
-        }
+        } catch (e: Exception) { e.printStackTrace(); null }
     }
 
     private fun printBitmap(out: OutputStream, originalBitmap: Bitmap, size: String) {
         val width = if (size == "58mm") 384 else 576
         val ratio = width.toFloat() / originalBitmap.width
         val height = (originalBitmap.height * ratio).toInt()
-
         val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
         canvas.drawColor(Color.WHITE) 
-
         val scaledSrc = Bitmap.createScaledBitmap(originalBitmap, width, height, true)
         canvas.drawBitmap(scaledSrc, 0f, 0f, null)
-
         val pixels = IntArray(bitmap.width * bitmap.height)
         bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
-
         val byteWidth = bitmap.width / 8
         out.write(byteArrayOf(0x1D, 0x76, 0x30, 0x00, byteWidth.toByte(), 0x00, (bitmap.height % 256).toByte(), (bitmap.height / 256).toByte()))
-
         for (y in 0 until bitmap.height) {
             for (x in 0 until byteWidth) {
                 var byte = 0
@@ -98,352 +92,221 @@ object BluetoothPrinterHelper {
         }
     }
 
+    private fun centerText(text: String, width: Int = 32): String {
+        val trimmed = text.take(width)
+        val padding = width - trimmed.length
+        val left = padding / 2
+        val right = padding - left
+        return " ".repeat(left) + trimmed + " ".repeat(right)
+    }
+
+    private fun formatLine(left: String, right: String, width: Int = 32): String {
+        val safeRight = right.take(width)
+        val maxLeft = (width - safeRight.length).coerceAtLeast(0)
+        val safeLeft = left.take(maxLeft)
+        val spaces = width - safeLeft.length - safeRight.length
+        return safeLeft + " ".repeat(spaces.coerceAtLeast(0)) + safeRight
+    }
+
+    private fun money(value: Double): String {
+        return "R$ %.2f".format(value).replace(".", ",")
+    }
+
     @SuppressLint("MissingPermission")
-    fun printEntranceTicket(
-        macAddress: String, 
-        session: PlaySession, 
-        size: String = "58mm",
-        logoBase64: String? = null,
-        customMessage: String? = null,
-        onResult: (Boolean, String) -> Unit = { _, _ -> }
-    ) {
-        if (macAddress.isEmpty()) {
-            onResult(false, "Nenhuma impressora selecionada!")
-            return
-        }
+    fun printEntranceTicket(macAddress: String, session: PlaySession, size: String = "58mm", logoBase64: String? = null, customMessage: String? = null, onResult: (Boolean, String) -> Unit = { _, _ -> }) {
+        if (macAddress.isEmpty()) { onResult(false, "Erro impressora"); return }
         Thread {
             var socket: BluetoothSocket? = null
             try {
-                val adapter = BluetoothAdapter.getDefaultAdapter() ?: throw Exception("Bluetooth não disponível")
+                val adapter = BluetoothAdapter.getDefaultAdapter() ?: throw Exception("BT Off")
                 val device = adapter.getRemoteDevice(macAddress)
                 socket = device.createRfcommSocketToServiceRecord(PRINTER_UUID)
                 socket.connect()
                 val out = socket.outputStream
-
-                out.write(RESET)
-                out.write(CHARSET_16)
-                out.write(CENTER)
-
-                logoBase64?.let { base64 ->
-                    decodeBitmap(base64)?.let { bmp ->
-                        printBitmap(out, bmp, size)
-                        out.write("\n\n".toByteArray())
-                    }
-                }
-
-                if (!customMessage.isNullOrBlank()) {
-                    out.write(CENTER)
-                    out.write(BOLD_ON)
-                    out.write(DOUBLE_STRIKE_ON)
-                    out.write(BIG_FONT)
-                    out.write("$customMessage\n\n".toByteArray(Charsets.ISO_8859_1))
-                }
-
-                out.write(BOLD_ON)
-                out.write(HUGE_FONT)
+                out.write(RESET); out.write(CHARSET_16); out.write(CENTER)
+                logoBase64?.let { b64 -> decodeBitmap(b64)?.let { bmp -> printBitmap(out, bmp, size); out.write("\n\n".toByteArray()) } }
+                if (!customMessage.isNullOrBlank()) { out.write(CENTER); out.write(BOLD_ON); out.write(BIG_FONT); out.write("$customMessage\n\n".toByteArray(Charsets.ISO_8859_1)) }
+                out.write(BOLD_ON); out.write(HUGE_FONT)
                 val title = if (session.isFinished) "TICKET\nDE\nSAIDA" else "TICKET\nDE\nENTRADA"
                 out.write("$title\n\n".toByteArray(Charsets.ISO_8859_1))
-
-                out.write(NORMAL_FONT)
-                out.write("--------------------------------\n".toByteArray())
-
-                out.write(CENTER)
-                out.write(BOLD_ON)
-                out.write(DOUBLE_STRIKE_ON)
-                
-                out.write(TALL_FONT) 
-                out.write("CLIENTE\n".toByteArray(Charsets.ISO_8859_1))
-                out.write("${session.personName.uppercase()}\n\n".toByteArray(Charsets.ISO_8859_1))
-                
-                out.write("BRINQUEDO\n".toByteArray(Charsets.ISO_8859_1))
-                out.write("${session.toyName.uppercase()}\n\n".toByteArray(Charsets.ISO_8859_1))
-                
+                out.write(NORMAL_FONT); out.write("--------------------------------\n".toByteArray())
+                out.write(CENTER); out.write(BOLD_ON); out.write(TALL_FONT) 
+                out.write("CLIENTE\n".toByteArray(Charsets.ISO_8859_1)); out.write("${session.personName.uppercase()}\n\n".toByteArray(Charsets.ISO_8859_1))
+                out.write("BRINQUEDO\n".toByteArray(Charsets.ISO_8859_1)); out.write("${session.toyName.uppercase()}\n\n".toByteArray(Charsets.ISO_8859_1))
                 out.write(BIG_FONT)
-                val valToPrint = if (session.isFinished) session.totalValueAccumulated else session.toyPrice
-                out.write("VALOR: R$ %.2f\n".format(valToPrint).toByteArray(Charsets.ISO_8859_1))
+                val valToP = if (session.isFinished) session.totalValueAccumulated else session.toyPrice
+                out.write("VALOR: R$ %.2f\n".format(valToP).toByteArray(Charsets.ISO_8859_1))
                 out.write("INICIO: ${session.startTime}\n".toByteArray(Charsets.ISO_8859_1))
-
-                val endTimeToShow = if (!session.endTime.isNullOrEmpty()) {
-                    session.endTime
-                } else {
-                    val sdf = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
-                    val cal = Calendar.getInstance()
-                    try {
-                        sdf.parse(session.startTime)?.let { cal.time = it }
-                        cal.add(Calendar.MINUTE, session.toyTimeMinutes)
-                    } catch (e: Exception) {}
-                    sdf.format(cal.time)
-                }
-                out.write("FIM: $endTimeToShow\n".toByteArray(Charsets.ISO_8859_1))
-
-                out.write(BOLD_OFF)
-                out.write(DOUBLE_STRIKE_OFF)
-                out.write(NORMAL_FONT)
-                out.write(CENTER)
-                out.write("\n--------------------------------\n\n\n\n\n".toByteArray())
-                out.flush()
-                runOnMainThread { onResult(true, "Impresso com sucesso!") }
-            } catch (e: Exception) {
-                runOnMainThread { onResult(false, "Erro: ${e.message}") }
-            } finally {
-                try { socket?.close() } catch (e: Exception) {}
-            }
+                out.write(BOLD_OFF); out.write(NORMAL_FONT); out.write("\n--------------------------------\n\n\n\n\n".toByteArray())
+                out.flush(); runOnMainThread { onResult(true, "Impresso!") }
+            } catch (e: Exception) { runOnMainThread { onResult(false, "Erro: ${e.message}") } } finally { try { socket?.close() } catch (e: Exception) {} }
         }.start()
     }
 
     @SuppressLint("MissingPermission")
-    fun printSTRQRCode(
-        macAddress: String,
-        session: PlaySession,
-        size: String = "58mm",
+    fun printCheckoutReceipt(
+        macAddress: String, childName: String, sessions: List<PlaySession>,
+        totalBruto: Double, alreadyPaid: Double, cash: Double, pix: Double, card: Double, change: Double,
+        size: String = "58mm", logoBase64: String? = null, customMessage: String? = null,
         onResult: (Boolean, String) -> Unit = { _, _ -> }
     ) {
         if (macAddress.isEmpty()) return
         Thread {
             var socket: BluetoothSocket? = null
             try {
-                val adapter = BluetoothAdapter.getDefaultAdapter() ?: throw Exception("Bluetooth não disponível")
+                val adapter = BluetoothAdapter.getDefaultAdapter() ?: throw Exception("BT Off")
                 val device = adapter.getRemoteDevice(macAddress)
                 socket = device.createRfcommSocketToServiceRecord(PRINTER_UUID)
                 socket.connect()
                 val out = socket.outputStream
-
-                out.write(RESET)
-                out.write(CENTER)
                 
-                out.write(BOLD_ON)
-                out.write(DOUBLE_STRIKE_ON)
-                out.write(BIG_FONT)
-                out.write("SDR - REGISTRO\n\n".toByteArray(Charsets.ISO_8859_1))
-                out.write(BOLD_OFF)
-                out.write(DOUBLE_STRIKE_OFF)
-
-                // Conteúdo CONSISTENTE por dia: SDR|NOME|DATA
-                // Isso garante QR codes diferentes em dias diferentes
-                val qrContent = "SDR|${session.personName.trim().uppercase()}|${session.date}"
+                val lineWidth = if (size == "58mm") 32 else 48
+                val divider = "-".repeat(lineWidth)
                 
-                // GERA QR CODE COMO IMAGEM (BITMAP)
-                val qrSizePx = if (size == "58mm") 350 else 500
-                generateQRCodeBitmap(qrContent, qrSizePx)?.let { qrBitmap ->
-                    printBitmap(out, qrBitmap, size)
-                }
-
-                out.write("\n".toByteArray())
-                out.write(CENTER)
-                out.write(BOLD_ON)
-                out.write(TALL_FONT)
-                out.write("CLIENTE: ${session.personName.uppercase()}\n".toByteArray(Charsets.ISO_8859_1))
-                out.write("DATA: ${session.date}\n".toByteArray(Charsets.ISO_8859_1))
-                out.write(BOLD_OFF)
-                
-                out.write(NORMAL_FONT)
-                out.write("\n--------------------------------\n\n\n\n\n".toByteArray())
-                out.flush()
-                runOnMainThread { onResult(true, "QR Code SDR impresso!") }
-            } catch (e: Exception) {
-                runOnMainThread { onResult(false, "Erro SDR: ${e.message}") }
-            } finally {
-                try { socket?.close() } catch (e: Exception) {}
-            }
-        }.start()
-    }
-
-    @SuppressLint("MissingPermission")
-    fun printChildSummary(
-        macAddress: String,
-        childName: String,
-        date: String,
-        history: List<PlaySession>,
-        total: Double,
-        size: String = "58mm",
-        logoBase64: String? = null,
-        customMessage: String? = null,
-        onResult: (Boolean, String) -> Unit = { _, _ -> }
-    ) {
-        if (macAddress.isEmpty()) return
-        Thread {
-            var socket: BluetoothSocket? = null
-            try {
-                val adapter = BluetoothAdapter.getDefaultAdapter() ?: throw Exception("Bluetooth não disponível")
-                val device = adapter.getRemoteDevice(macAddress)
-                socket = device.createRfcommSocketToServiceRecord(PRINTER_UUID)
-                socket.connect()
-                val out = socket.outputStream
-
-                out.write(RESET)
-                out.write(CHARSET_16)
-                out.write(CENTER)
-
-                logoBase64?.let { base64 ->
-                    decodeBitmap(base64)?.let { bmp ->
-                        printBitmap(out, bmp, size)
-                        out.write("\n\n".toByteArray())
+                // Agrupamento dos itens para simplificar a nota
+                val groupedItems = sessions.groupBy { it.toyName to it.toyPrice }
+                    .map { (key, list) -> 
+                        PaidItem(name = key.first, quantity = list.size, unitPrice = key.second) 
                     }
-                }
 
-                if (!customMessage.isNullOrBlank()) {
-                    out.write(CENTER)
-                    out.write(BOLD_ON)
-                    out.write(DOUBLE_STRIKE_ON)
-                    out.write(BIG_FONT)
-                    out.write("$customMessage\n\n".toByteArray(Charsets.ISO_8859_1))
-                }
-
-                out.write(BOLD_ON)
-                out.write(BIG_FONT)
-                out.write("RESUMO PARA\n${childName.uppercase()}\n".toByteArray(Charsets.ISO_8859_1))
-                out.write(NORMAL_FONT)
-                out.write("DATA: $date\n\n".toByteArray(Charsets.ISO_8859_1))
-
-                out.write(CENTER)
-                out.write(BOLD_ON)
-                out.write(DOUBLE_STRIKE_ON)
-
-                history.forEach { session ->
-                    out.write(TALL_FONT)
-                    out.write("BRINQUEDO\n".toByteArray(Charsets.ISO_8859_1))
-                    out.write("${session.toyName.uppercase()}\n".toByteArray(Charsets.ISO_8859_1))
-
-                    out.write("INI: ${session.startTime} | FIM: ${session.endTime ?: "--:--:--"}\n".toByteArray(Charsets.ISO_8859_1))
-                    val valShow = if(session.isFinished) session.totalValueAccumulated else session.calculateCurrentProportionalValue()
-                    out.write("VALOR: R$ %.2f\n".format(valShow).toByteArray(Charsets.ISO_8859_1))
-                    if(session.isPaid) out.write("SITUAÇÃO: PAGO ANTECIPADO\n".toByteArray(Charsets.ISO_8859_1))
-                    
-                    out.write(NORMAL_FONT)
-                    out.write("--------------------------------\n".toByteArray())
-                    out.write(TALL_FONT)
-                    out.write(BOLD_ON)
-                    out.write(DOUBLE_STRIKE_ON)
-                }
-
-                out.write("\n".toByteArray())
-                out.write(CENTER)
-                out.write(BOLD_ON)
-                out.write(BIG_FONT)
-                out.write("SALDO A PAGAR: R$ %.2f\n".format(total).toByteArray(Charsets.ISO_8859_1))
+                out.write(RESET); out.write(CHARSET_16); out.write(CENTER)
                 
-                out.write(NORMAL_FONT)
-                out.write(BOLD_OFF)
-                out.write("\n--------------------------------\n\n\n\n\n".toByteArray())
-                out.flush()
-                runOnMainThread { onResult(true, "Resumo impresso!") }
-            } catch (e: Exception) {
-                runOnMainThread { onResult(false, "Erro: ${e.message}") }
-            } finally {
-                try { socket?.close() } catch (e: Exception) {}
-            }
-        }.start()
-    }
-
-    @SuppressLint("MissingPermission")
-    fun printReport(
-        macAddress: String,
-        history: List<PlaySession>,
-        total: Double,
-        size: String = "58mm",
-        logoBase64: String? = null,
-        customMessage: String? = null,
-        onResult: (Boolean, String) -> Unit = { _, _ -> }
-    ) {
-        if (macAddress.isEmpty()) return
-        Thread {
-            var socket: BluetoothSocket? = null
-            try {
-                val adapter = BluetoothAdapter.getDefaultAdapter() ?: throw Exception("Bluetooth não disponível")
-                val device = adapter.getRemoteDevice(macAddress)
-                socket = device.createRfcommSocketToServiceRecord(PRINTER_UUID)
-                socket.connect()
-                val out = socket.outputStream
-
-                out.write(RESET)
-                out.write(CHARSET_16)
-                out.write(CENTER)
-
-                logoBase64?.let { base64 ->
-                    decodeBitmap(base64)?.let { bmp ->
-                        printBitmap(out, bmp, size)
-                        out.write("\n\n".toByteArray())
-                    }
-                }
-
-                if (!customMessage.isNullOrBlank()) {
-                    out.write(CENTER)
-                    out.write(BOLD_ON)
-                    out.write(DOUBLE_STRIKE_ON)
-                    out.write(BIG_FONT)
-                    out.write("$customMessage\n\n".toByteArray(Charsets.ISO_8859_1))
-                }
-
+                logoBase64?.let { b64 -> decodeBitmap(b64)?.let { bmp -> printBitmap(out, bmp, size); out.write("\n".toByteArray()) } }
+                
+                val companyName = customMessage ?: "BRINCANDO NA PRAÇA"
                 out.write(BOLD_ON)
-                out.write(BIG_FONT)
-                if (size == "58mm") {
-                    out.write("RELATORIO\nDE\nIMPRESSAO\n".toByteArray(Charsets.ISO_8859_1))
-                } else {
-                    out.write("RELATORIO DE IMPRESSAO\n".toByteArray(Charsets.ISO_8859_1))
-                }
-
-                out.write(NORMAL_FONT)
-                val dateStr = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).format(Date())
-                out.write("DATA: $dateStr\n\n".toByteArray(Charsets.ISO_8859_1))
-
+                out.write("${centerText(companyName, lineWidth)}\n".toByteArray(Charsets.ISO_8859_1))
+                out.write("${centerText("COMPROVANTE DE PAGAMENTO", lineWidth)}\n".toByteArray(Charsets.ISO_8859_1))
+                out.write(BOLD_OFF)
+                out.write("$divider\n".toByteArray())
+                
                 out.write(LEFT)
-                out.write("--------------------------------\n".toByteArray())
+                out.write("Cliente: ${childName.uppercase()}\n".toByteArray(Charsets.ISO_8859_1))
+                out.write("Data: ${SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()).format(Date())}\n".toByteArray(Charsets.ISO_8859_1))
+                out.write("$divider\n\n".toByteArray())
+                
+                out.write(BOLD_ON)
+                out.write("ITENS PAGOS\n".toByteArray(Charsets.ISO_8859_1))
+                out.write(BOLD_OFF)
+                out.write("$divider\n".toByteArray())
 
-                history.forEach { session ->
-                    out.write("${session.personName.uppercase()} - ${session.toyName.uppercase()} - R$ %.2f\n".format(session.totalValueAccumulated).toByteArray(Charsets.ISO_8859_1))
-                    out.write("Ini: ${session.startTime}  Fim: ${session.endTime ?: "--:--:--"}\n".toByteArray(Charsets.ISO_8859_1))
-                    out.write("--------------------------------\n".toByteArray())
+                groupedItems.forEach { item ->
+                    val itemTotal = item.quantity * item.unitPrice
+                    out.write("${item.name.uppercase()}\n".toByteArray(Charsets.ISO_8859_1))
+                    out.write("${formatLine("  ${item.quantity} x ${money(item.unitPrice)}", money(itemTotal), lineWidth)}\n".toByteArray(Charsets.ISO_8859_1))
                 }
 
+                out.write("$divider\n".toByteArray())
+                out.write(BOLD_ON)
+                out.write("${formatLine("TOTAL BRUTO:", money(totalBruto), lineWidth)}\n".toByteArray(Charsets.ISO_8859_1))
+                if (alreadyPaid > 0) {
+                    out.write("${formatLine("PAGO ANTECIPADO:", money(alreadyPaid), lineWidth)}\n".toByteArray(Charsets.ISO_8859_1))
+                }
+                
+                val saldoAPagar = totalBruto - alreadyPaid
+                out.write(BIG_FONT)
+                out.write("${formatLine("SALDO PAGO:", money(saldoAPagar), lineWidth)}\n".toByteArray(Charsets.ISO_8859_1))
+                out.write(NORMAL_FONT)
+                out.write(BOLD_OFF)
+                out.write("$divider\n\n".toByteArray())
+
+                out.write("FORMA DE PAGAMENTO:\n".toByteArray(Charsets.ISO_8859_1))
+                if (cash > 0) out.write("${formatLine("DINHEIRO:", money(cash), lineWidth)}\n".toByteArray(Charsets.ISO_8859_1))
+                if (pix > 0) out.write("${formatLine("PIX:", money(pix), lineWidth)}\n".toByteArray(Charsets.ISO_8859_1))
+                if (card > 0) out.write("${formatLine("CARTÃO:", money(card), lineWidth)}\n".toByteArray(Charsets.ISO_8859_1))
+                if (change > 0) out.write("${formatLine("TROCO:", money(change), lineWidth)}\n".toByteArray(Charsets.ISO_8859_1))
+                
                 out.write("\n".toByteArray())
                 out.write(CENTER)
                 out.write(BOLD_ON)
-                out.write(BIG_FONT)
-                out.write("TOTAL: R$ %.2f\n".format(total).toByteArray(Charsets.ISO_8859_1))
-                
-                out.write(NORMAL_FONT)
+                out.write("${centerText("OBRIGADO E VOLTE SEMPRE!", lineWidth)}\n".toByteArray(Charsets.ISO_8859_1))
                 out.write(BOLD_OFF)
-                out.write("\n--------------------------------\n\n\n\n\n".toByteArray())
-                out.flush()
-                runOnMainThread { onResult(true, "Relatório impresso!") }
-            } catch (e: Exception) {
-                runOnMainThread { onResult(false, "Erro: ${e.message}") }
-            } finally {
-                try { socket?.close() } catch (e: Exception) {}
-            }
+                out.write("$divider\n\n\n\n\n".toByteArray())
+
+                out.flush(); runOnMainThread { onResult(true, "Recibo impresso!") }
+            } catch (e: Exception) { runOnMainThread { onResult(false, "Erro: ${e.message}") } } finally { try { socket?.close() } catch (e: Exception) {} }
+        }.start()
+    }
+
+    @SuppressLint("MissingPermission")
+    fun printSTRQRCode(macAddress: String, session: PlaySession, size: String = "58mm", onResult: (Boolean, String) -> Unit = { _, _ -> }) {
+        if (macAddress.isEmpty()) return
+        Thread {
+            var socket: BluetoothSocket? = null
+            try {
+                val adapter = BluetoothAdapter.getDefaultAdapter() ?: throw Exception("BT Off")
+                val device = adapter.getRemoteDevice(macAddress)
+                socket = device.createRfcommSocketToServiceRecord(PRINTER_UUID)
+                socket.connect()
+                val out = socket.outputStream
+                out.write(RESET); out.write(CENTER); out.write(BOLD_ON); out.write(BIG_FONT); out.write("SDR - REGISTRO\n\n".toByteArray(Charsets.ISO_8859_1))
+                val qrContent = "SDR|${session.personName.trim().uppercase()}|${session.date}"
+                generateQRCodeBitmap(qrContent, if (size == "58mm") 350 else 500)?.let { printBitmap(out, it, size) }
+                out.write("\n".toByteArray()); out.write(CENTER); out.write(BOLD_ON); out.write(TALL_FONT); out.write("CLIENTE: ${session.personName.uppercase()}\n".toByteArray(Charsets.ISO_8859_1)); out.write("DATA: ${session.date}\n".toByteArray(Charsets.ISO_8859_1)); out.write(NORMAL_FONT); out.write("\n--------------------------------\n\n\n\n\n".toByteArray())
+                out.flush(); runOnMainThread { onResult(true, "SDR!") }
+            } catch (e: Exception) { runOnMainThread { onResult(false, "Erro SDR: ${e.message}") } } finally { try { socket?.close() } catch (e: Exception) {} }
+        }.start()
+    }
+
+    @SuppressLint("MissingPermission")
+    fun printChildSummary(macAddress: String, childName: String, date: String, history: List<PlaySession>, total: Double, size: String = "58mm", logoBase64: String? = null, customMessage: String? = null, onResult: (Boolean, String) -> Unit = { _, _ -> }) {
+        if (macAddress.isEmpty()) return
+        Thread {
+            var socket: BluetoothSocket? = null
+            try {
+                val adapter = BluetoothAdapter.getDefaultAdapter() ?: throw Exception("BT Off")
+                val device = adapter.getRemoteDevice(macAddress)
+                socket = device.createRfcommSocketToServiceRecord(PRINTER_UUID)
+                socket.connect()
+                val out = socket.outputStream
+                out.write(RESET); out.write(CHARSET_16); out.write(CENTER)
+                logoBase64?.let { b64 -> decodeBitmap(b64)?.let { bmp -> printBitmap(out, bmp, size); out.write("\n\n".toByteArray()) } }
+                if (!customMessage.isNullOrBlank()) { out.write(CENTER); out.write(BOLD_ON); out.write(BIG_FONT); out.write("$customMessage\n\n".toByteArray(Charsets.ISO_8859_1)) }
+                out.write(BOLD_ON); out.write(BIG_FONT); out.write("RESUMO PARA\n${childName.uppercase()}\n".toByteArray(Charsets.ISO_8859_1)); out.write(NORMAL_FONT); out.write("DATA: $date\n\n".toByteArray(Charsets.ISO_8859_1)); out.write(CENTER)
+                history.forEach { s -> out.write(TALL_FONT); out.write("${s.toyName.uppercase()}\n".toByteArray(Charsets.ISO_8859_1)); val vs = if(s.isFinished) s.totalValueAccumulated else s.calculateCurrentProportionalValue(); out.write("VALOR: R$ %.2f\n".format(vs).toByteArray(Charsets.ISO_8859_1)); if(s.isPaid) out.write("SITUAÇÃO: PAGO\n".toByteArray(Charsets.ISO_8859_1)); out.write(NORMAL_FONT); out.write("--------------------------------\n".toByteArray()) }
+                out.write("\n".toByteArray()); out.write(BOLD_ON); out.write(BIG_FONT); out.write("SALDO A PAGAR: R$ %.2f\n".format(total).toByteArray(Charsets.ISO_8859_1)); out.write(NORMAL_FONT); out.write("\n--------------------------------\n\n\n\n\n".toByteArray())
+                out.flush(); runOnMainThread { onResult(true, "Resumo impresso!") }
+            } catch (e: Exception) { runOnMainThread { onResult(false, "Erro: ${e.message}") } } finally { try { socket?.close() } catch (e: Exception) {} }
+        }.start()
+    }
+
+    @SuppressLint("MissingPermission")
+    fun printReport(macAddress: String, history: List<PlaySession>, total: Double, size: String = "58mm", logoBase64: String? = null, customMessage: String? = null, onResult: (Boolean, String) -> Unit = { _, _ -> }) {
+        if (macAddress.isEmpty()) return
+        Thread {
+            var socket: BluetoothSocket? = null
+            try {
+                val adapter = BluetoothAdapter.getDefaultAdapter() ?: throw Exception("BT Off")
+                val device = adapter.getRemoteDevice(macAddress)
+                socket = device.createRfcommSocketToServiceRecord(PRINTER_UUID)
+                socket.connect()
+                val out = socket.outputStream
+                out.write(RESET); out.write(CHARSET_16); out.write(CENTER)
+                logoBase64?.let { b64 -> decodeBitmap(b64)?.let { bmp -> printBitmap(out, bmp, size); out.write("\n\n".toByteArray()) } }
+                if (!customMessage.isNullOrBlank()) { out.write(CENTER); out.write(BOLD_ON); out.write(BIG_FONT); out.write("$customMessage\n\n".toByteArray(Charsets.ISO_8859_1)) }
+                out.write(BOLD_ON); out.write(BIG_FONT); out.write("RELATORIO DO DIA\n".toByteArray(Charsets.ISO_8859_1)); out.write(NORMAL_FONT); out.write("DATA: ${SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).format(Date())}\n\n".toByteArray(Charsets.ISO_8859_1))
+                out.write(LEFT); out.write("--------------------------------\n".toByteArray())
+                history.forEach { s -> out.write("${s.personName.uppercase()} - R$ %.2f\n".format(s.totalValueAccumulated).toByteArray(Charsets.ISO_8859_1)) }
+                out.write("\n".toByteArray()); out.write(CENTER); out.write(BOLD_ON); out.write(BIG_FONT); out.write("TOTAL: R$ %.2f\n".format(total).toByteArray(Charsets.ISO_8859_1)); out.write(NORMAL_FONT); out.write("\n--------------------------------\n\n\n\n\n".toByteArray())
+                out.flush(); runOnMainThread { onResult(true, "Relatório impresso!") }
+            } catch (e: Exception) { runOnMainThread { onResult(false, "Erro: ${e.message}") } } finally { try { socket?.close() } catch (e: Exception) {} }
         }.start()
     }
 
     @SuppressLint("MissingPermission")
     fun printTest(macAddress: String, onResult: (Boolean, String) -> Unit) {
-        if (macAddress.isEmpty()) {
-            onResult(false, "Selecione uma impressora nas configurações!")
-            return
-        }
+        if (macAddress.isEmpty()) { onResult(false, "Impressora?"); return }
         Thread {
             var socket: BluetoothSocket? = null
             try {
-                val adapter = BluetoothAdapter.getDefaultAdapter() ?: throw Exception("Bluetooth não disponível")
+                val adapter = BluetoothAdapter.getDefaultAdapter() ?: throw Exception("BT Off")
                 val device = adapter.getRemoteDevice(macAddress)
                 socket = device.createRfcommSocketToServiceRecord(PRINTER_UUID)
                 socket.connect()
-                
                 val out = socket.outputStream
-                out.write(RESET)
-                out.write(CENTER)
-                out.write(BOLD_ON)
-                out.write(BIG_FONT)
-                out.write("\nTESTE OK!\n\n".toByteArray(Charsets.ISO_8859_1))
-                out.write(NORMAL_FONT)
-                out.write("CONEXÃO ESTABELECIDA\nCOM SUCESSO!\n\n\n\n".toByteArray(Charsets.ISO_8859_1))
-                out.flush()
-                
-                runOnMainThread { onResult(true, "Teste concluído com sucesso!") }
-            } catch (e: Exception) {
-                runOnMainThread { onResult(false, "Erro ao conectar: ${e.message}") }
-            } finally {
-                try { socket?.close() } catch (e: Exception) {}
-            }
+                out.write(RESET); out.write(CENTER); out.write(BOLD_ON); out.write(BIG_FONT); out.write("\nTESTE OK!\n\n\n\n".toByteArray(Charsets.ISO_8859_1)); out.flush()
+                runOnMainThread { onResult(true, "OK!") }
+            } catch (e: Exception) { runOnMainThread { onResult(false, "Erro ao conectar: ${e.message}") } } finally { try { socket?.close() } catch (e: Exception) {} }
         }.start()
     }
 }

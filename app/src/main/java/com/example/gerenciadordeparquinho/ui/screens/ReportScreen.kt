@@ -3,6 +3,7 @@ package com.example.gerenciadordeparquinho.ui.screens
 import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -23,6 +24,7 @@ import com.example.gerenciadordeparquinho.data.repository.AppDatabase
 import com.example.gerenciadordeparquinho.ui.theme.IntenseGreen
 import com.example.gerenciadordeparquinho.ui.theme.getHighlightStyle
 import com.example.gerenciadordeparquinho.utils.BluetoothPrinterHelper
+import com.example.gerenciadordeparquinho.utils.normalizeName
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
@@ -35,7 +37,7 @@ fun ReportScreen(
     logoBase64: String? = null,
     onSearchClick: () -> Unit = {},
     isLightMode: Boolean = false,
-    isAdmin: Boolean = false // ADICIONADO CONTROLE DE ADMIN
+    isAdmin: Boolean = false
 ) {
     val context = LocalContext.current
     val db = remember { AppDatabase.getDatabase(context) }
@@ -205,8 +207,22 @@ fun ReportItemUI(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                Text(session.personName.uppercase(), color = textColor, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                Text("Início: ${session.startTime} | Valor: R$ %.2f".format(session.totalValueAccumulated), color = secondaryColor, fontSize = 13.sp, fontWeight = if(isLightMode) FontWeight.Black else FontWeight.Normal)
+                Text(session.personName.normalizeName(), color = textColor, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Início: ${session.startTime} | Valor: R$ %.2f".format(session.totalValueAccumulated), color = secondaryColor, fontSize = 13.sp, fontWeight = if(isLightMode) FontWeight.Bold else FontWeight.Normal)
+                    if (session.isPaid) {
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            text = "PAGO", 
+                            color = IntenseGreen, 
+                            fontWeight = FontWeight.Black, 
+                            fontSize = 10.sp, 
+                            modifier = Modifier
+                                .border(1.dp, IntenseGreen, RoundedCornerShape(4.dp))
+                                .padding(horizontal = 4.dp)
+                        )
+                    }
+                }
             }
             Row {
                 IconButton(onClick = onPrint) {
