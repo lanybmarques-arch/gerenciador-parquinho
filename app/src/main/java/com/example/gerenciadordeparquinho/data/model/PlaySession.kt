@@ -27,6 +27,10 @@ data class PlaySession(
     val isPaid: Boolean = false // NOVO CAMPO PARA CONTROLE DE PAGAMENTO
 ) {
     fun calculateCurrentProportionalValue(): Double {
+        // Se a sessão já foi encerrada, retornamos apenas o valor travado no banco.
+        // Isso evita somar o tempo decorrido novamente (superfaturamento).
+        if (isFinished) return totalValueAccumulated
+
         val totalSecondsInCycle = (toyTimeMinutes * 60).toDouble()
         if (totalSecondsInCycle <= 0) return totalValueAccumulated
 

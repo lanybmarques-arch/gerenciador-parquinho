@@ -11,9 +11,11 @@ import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material.icons.filled.*
@@ -217,7 +219,14 @@ fun HomeScreen(
         var selectedDate by remember { mutableStateOf(SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).format(Date())) }
         val ticketsOfDay by db.sessionDao().getSessionsByDate(selectedDate).collectAsState(initial = emptyList())
         var expandedName by remember { mutableStateOf<String?>(null) }
-        val grouped = remember(ticketsOfDay) { ticketsOfDay.groupBy { it.personName.trim().uppercase() } }
+        val grouped = remember(ticketsOfDay, isCashierMode) { 
+            val allGrouped = ticketsOfDay.groupBy { it.personName.trim().uppercase() }
+            if (isCashierMode) {
+                allGrouped.filter { (_, sessions) -> sessions.any { !it.isPaid || !it.isFinished } }
+            } else {
+                allGrouped
+            }
+        }
 
         AlertDialog(
             onDismissRequest = { showTicketsDialog = false }, containerColor = if(isLightMode) Color.White else Color(0xFF1A1A1A),
@@ -233,7 +242,7 @@ fun HomeScreen(
                     LazyColumn(modifier = Modifier.heightIn(max = 450.dp)) {
                         grouped.forEach { (name, sessions) ->
                             item {
-                                val total = sessions.sumOf { it.totalValueAccumulated }
+                                val total = sessions.sumOf { it.calculateCurrentProportionalValue() }
                                 Card(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp).clickable { expandedName = if (expandedName == name) null else name }, colors = CardDefaults.cardColors(containerColor = if(isLightMode) Color(0xFFF5F5F5) else Color(0xFF222222)), shape = RoundedCornerShape(12.dp)) {
                                     Column(modifier = Modifier.padding(12.dp)) {
                                         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -252,9 +261,13 @@ fun HomeScreen(
                                         if (expandedName == name) {
                                             Spacer(Modifier.height(8.dp))
                                             sessions.forEach { s -> Row(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp), horizontalArrangement = Arrangement.SpaceBetween) { 
-                                                Text(s.toyName.uppercase(), color = secondaryColor, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                val currentV = s.calculateCurrentProportionalValue()
+                                                val qty = if (s.toyPrice > 0) currentV / s.toyPrice else 1.0
+                                                val qtyDisplay = if (qty % 1.0 == 0.0) qty.toInt().toString() else "%.1f".format(qty).replace(".", ",")
+                                                
+                                                Text("${s.toyName.uppercase()} ${qtyDisplay}X", color = secondaryColor, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                                    Text("R$ %.2f".format(s.totalValueAccumulated), color = if(s.isPaid) IntenseGreen else Color.Red, fontSize = 11.sp, fontWeight = FontWeight.Black)
+                                                    Text("R$ %.2f".format(currentV), color = if(s.isPaid) IntenseGreen else Color.Red, fontSize = 11.sp, fontWeight = FontWeight.Black)
                                                     if(s.isPaid) { Spacer(Modifier.width(4.dp)); Icon(Icons.Default.CheckCircle, null, tint = IntenseGreen, modifier = Modifier.size(14.dp)) }
                                                 }
                                             } }
@@ -266,7 +279,7 @@ fun HomeScreen(
                             }
                         }
                     }
-                    Text("TOTAL GERAL: R$ %.2f".format(ticketsOfDay.sumOf { it.totalValueAccumulated }), color = IntenseGreen, fontWeight = FontWeight.Black, fontSize = 18.sp, modifier = Modifier.fillMaxWidth().padding(top = 16.dp), textAlign = TextAlign.Center)
+                    Text("TOTAL GERAL: R$ %.2f".format(grouped.values.flatten().sumOf { it.calculateCurrentProportionalValue() }), color = IntenseGreen, fontWeight = FontWeight.Black, fontSize = 18.sp, modifier = Modifier.fillMaxWidth().padding(top = 16.dp), textAlign = TextAlign.Center)
                 }
             },
             confirmButton = { TextButton(onClick = { showTicketsDialog = false }) { Text("FECHAR", color = IntenseGreen, fontWeight = FontWeight.Bold) } }
@@ -322,7 +335,19 @@ fun HomeScreen(
             onConfirmPayment = { updated, cash, pix, card, totalBruto, paidSoFarNow, change -> 
                 scope.launch { 
                     try { cashierPlayer?.start() } catch(_:Exception){}
-                    updated.forEach { db.sessionDao().insertSession(it) }
+                    val nowTime = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
+                    val finalizedSessions = updated.map { s ->
+                        s.copy(
+                            isPaid = true,
+                            isFinished = true,
+                            endTime = nowTime,
+                            totalValueAccumulated = s.calculateCurrentProportionalValue(),
+                            remainingSeconds = 0,
+                            isPaused = false,
+                            isToyReleased = true
+                        )
+                    }
+                    finalizedSessions.forEach { db.sessionDao().insertSession(it) }
                     if (printerMac.isNotEmpty()) {
                         val alreadyPaid = sessions.filter { it.isPaid }.sumOf { it.totalValueAccumulated }
                         BluetoothPrinterHelper.printCheckoutReceipt(
@@ -340,7 +365,6 @@ fun HomeScreen(
     if (showDuplicateNameDialog) { AlertDialog(onDismissRequest = { showDuplicateNameDialog = false }, containerColor = if(isLightMode) Color.White else Color(0xFF1A1A1A), title = { Text("NOME EM USO!", color = Color.Red, fontWeight = FontWeight.Bold) }, text = { Text("Já existe um tempo aberto para '$childName'.", color = if(isLightMode) Color.Black else Color.White) }, confirmButton = { TextButton(onClick = { showDuplicateNameDialog = false }) { Text("ENTENDI", color = IntenseGreen, fontWeight = FontWeight.Bold) } }) }
     if (showScanner || isPreAutoScannerActive) { QRScannerScreen(onClose = { showScanner = false; isPreAutoScannerActive = false }, onScanResult = { qrData -> if (isPreAutoScannerActive) { val parts = qrData.split("|"); if (parts.size >= 2) childName = parts[1].normalizeName().trim().uppercase(); isPreAutoScannerActive = false } else showScanner = false }, isPreAutoMode = isPreAutoScannerActive, autoPrint = autoPrintScannerSummary, onAutoPrintChange = onAutoPrintScannerSummaryChange, printerMac = printerMac, printerSize = printerSize, logoBase64 = logoBase64, appName = appName, isLightMode = isLightMode) }
     
-    // RESTAURAÇÃO COMPLETA DO LAYOUT ORIGINAL DA TELA DE TEMPO ESGOTADO + CARIMBO PAGO
     val expiredSession = activeSessionsFromDb.find { it.remainingSeconds <= 0 && !it.isFinished && !it.isPaused }
     if (expiredSession != null) {
         val currentVal = expiredSession.calculateCurrentProportionalValue()
@@ -403,7 +427,7 @@ fun CheckoutPDVDialog(
     var pix by remember { mutableStateOf("") }
     var card by remember { mutableStateOf("") }
     
-    val totalBruto = sessions.sumOf { it.totalValueAccumulated }
+    val totalBruto = sessions.sumOf { it.calculateCurrentProportionalValue() }
     val alreadyPaid = sessions.filter { it.isPaid }.sumOf { it.totalValueAccumulated }
     val totalToPayNow = (totalBruto - alreadyPaid).coerceAtLeast(0.0)
     
@@ -430,7 +454,7 @@ fun CheckoutPDVDialog(
                         }
                         Column(modifier = Modifier.weight(1f)) { 
                             PDVPaymentSection(cash, { cash = it }, pix, { pix = it }, card, { card = it }, totalToPayNow, paidSoFarNow, remaining, change, onConfirm = { 
-                                onConfirmPayment(sessions.map { it.copy(isPaid = true) }, cash.toDoubleOrNull() ?: 0.0, pix.toDoubleOrNull() ?: 0.0, card.toDoubleOrNull() ?: 0.0, totalBruto, paidSoFarNow, change) 
+                                onConfirmPayment(sessions, cash.toDoubleOrNull() ?: 0.0, pix.toDoubleOrNull() ?: 0.0, card.toDoubleOrNull() ?: 0.0, totalBruto, paidSoFarNow, change) 
                             }, textColor) 
                         }
                     }
@@ -439,7 +463,7 @@ fun CheckoutPDVDialog(
                         PDVDetailsSection(sessions, totalBruto, alreadyPaid, cardBg, textColor)
                         Spacer(Modifier.height(24.dp))
                         PDVPaymentSection(cash, { cash = it }, pix, { pix = it }, card, { card = it }, totalToPayNow, paidSoFarNow, remaining, change, onConfirm = { 
-                            onConfirmPayment(sessions.map { it.copy(isPaid = true) }, cash.toDoubleOrNull() ?: 0.0, pix.toDoubleOrNull() ?: 0.0, card.toDoubleOrNull() ?: 0.0, totalBruto, paidSoFarNow, change) 
+                            onConfirmPayment(sessions, cash.toDoubleOrNull() ?: 0.0, pix.toDoubleOrNull() ?: 0.0, card.toDoubleOrNull() ?: 0.0, totalBruto, paidSoFarNow, change) 
                         }, textColor)
                         Spacer(Modifier.height(24.dp))
                     }
@@ -451,32 +475,59 @@ fun CheckoutPDVDialog(
 
 @Composable
 fun PDVDetailsSection(sessions: List<PlaySession>, total: Double, alreadyPaid: Double, cardBg: Color, textColor: Color) {
-    Text("DETALHES DO CONSUMO", color = IntenseGreen, fontSize = 12.sp, fontWeight = FontWeight.Black)
+    val beigeColor = Color(0xFFF5F5DC) 
+    val contentColor = Color.Black 
+    
+    Text("VALORES DETALHADOS", color = textColor, fontSize = 12.sp, fontWeight = FontWeight.Black)
     Spacer(Modifier.height(12.dp))
-    Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = cardBg), shape = RoundedCornerShape(12.dp)) {
+    Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = beigeColor), shape = RoundedCornerShape(12.dp)) {
         Column(modifier = Modifier.padding(16.dp)) {
-            sessions.forEach { s -> Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) { 
-                Text(s.toyName.uppercase(), modifier = Modifier.weight(1f), color = textColor, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                Text("....................", color = Color.Gray.copy(alpha = 0.3f), modifier = Modifier.padding(horizontal = 8.dp))
-                Text("R$ %.2f".format(s.totalValueAccumulated), color = if(s.isPaid) IntenseGreen else textColor, fontWeight = FontWeight.Black)
-            } }
-            HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp), color = Color.Gray.copy(alpha = 0.2f))
-            
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("TOTAL BRUTO", color = textColor, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                Text("R$ %.2f".format(total), color = textColor, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-            }
-            if (alreadyPaid > 0) {
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("VALORES PAGOS (ANTECIPADO)", color = IntenseGreen, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                    Text("- R$ %.2f".format(alreadyPaid), color = IntenseGreen, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+            val unpaid = sessions.filter { !it.isPaid }
+            val paid = sessions.filter { it.isPaid }
+
+            unpaid.groupBy { it.toyName to it.toyPrice }.forEach { (key, list) ->
+                val unitPrice = key.second
+                val subTotal = list.sumOf { it.calculateCurrentProportionalValue() }
+                val qty = if (unitPrice > 0) subTotal / unitPrice else 1.0
+                val qtyDisplay = if (qty % 1.0 == 0.0) qty.toInt().toString() else "%.1f".format(qty).replace(".", ",")
+                
+                Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) { 
+                    Text("${key.first.uppercase()} ${qtyDisplay}X R$ %.2f".format(unitPrice), 
+                        modifier = Modifier.weight(1f), color = contentColor, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    Text("R$ %.2f".format(subTotal), color = contentColor, fontWeight = FontWeight.Black, fontSize = 14.sp)
                 }
             }
-            Spacer(Modifier.height(8.dp))
-            Row(modifier = Modifier.fillMaxWidth()) { 
-                Text("SALDO A PAGAR", modifier = Modifier.weight(1f), color = IntenseGreen, fontSize = 18.sp, fontWeight = FontWeight.Black)
+
+            paid.groupBy { it.toyName to it.toyPrice }.forEach { (key, list) ->
+                val unitPrice = key.second
+                val subTotal = list.sumOf { it.totalValueAccumulated }
+                val qty = if (unitPrice > 0) subTotal / unitPrice else 1.0
+                val qtyDisplay = if (qty % 1.0 == 0.0) qty.toInt().toString() else "%.1f".format(qty).replace(".", ",")
+                
+                Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) { 
+                    Text("${key.first.uppercase()} ${qtyDisplay}X R$ %.2f".format(unitPrice),
+                        modifier = Modifier.weight(1f), color = contentColor, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    Text("- R$ %.2f".format(subTotal), color = contentColor, fontWeight = FontWeight.Black, fontSize = 14.sp)
+                }
+            }
+            
+            HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp), color = contentColor.copy(alpha = 0.2f))
+            
+            Row(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("TOTAL BRUTO", color = contentColor, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                Text("R$ %.2f".format(total), color = contentColor, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+            }
+            if (alreadyPaid > 0) {
+                Row(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("VALORES PAGOS (ANTECIPADO)", color = contentColor, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    Text("- R$ %.2f".format(alreadyPaid), color = contentColor, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+            Spacer(Modifier.height(12.dp))
+            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) { 
+                Text("SALDO A PAGAR", modifier = Modifier.weight(1f), color = Color.Red, fontSize = 18.sp, fontWeight = FontWeight.Black)
                 val saldo = (total - alreadyPaid).coerceAtLeast(0.0)
-                Text("R$ %.2f".format(saldo), color = IntenseGreen, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold) 
+                Text("R$ %.2f".format(saldo), color = Color.Red, fontSize = 24.sp, fontWeight = FontWeight.ExtraBold)
             }
         }
     }
