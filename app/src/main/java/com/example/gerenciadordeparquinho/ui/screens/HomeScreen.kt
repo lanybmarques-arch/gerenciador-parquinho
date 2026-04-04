@@ -1,7 +1,9 @@
 package com.example.gerenciadordeparquinho.ui.screens
 
 import android.app.DatePickerDialog
+import android.content.Context
 import android.media.MediaPlayer
+import android.widget.Toast
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
@@ -117,7 +119,7 @@ fun HomeScreen(
                     } else {
                         if (isSoundEnabled) { try { if (!mediaPlayer.isPlaying) mediaPlayer.start() } catch (_: Exception) {} }
                         if (autoPrintExit && !session.notified && printerMac.isNotEmpty()) {
-                            BluetoothPrinterHelper.printEntranceTicket(printerMac, session, printerSize, logoBase64, appName)
+                            BluetoothPrinterHelper.printEntranceTicket(context, printerMac, session, printerSize, logoBase64, appName)
                             db.sessionDao().insertSession(session.copy(notified = true, lastUpdateTimestamp = now))
                         } else { db.sessionDao().insertSession(session.copy(lastUpdateTimestamp = now)) }
                     }
@@ -136,13 +138,13 @@ fun HomeScreen(
                     Spacer(Modifier.height(16.dp))
                     AutoPrintOptions(autoPrintEntrance, onAutoPrintEntranceChange, autoPrintExit, onAutoPrintExitChange, autoPrintSDR, onAutoPrintSDRChange, textColor, secondaryColor, isLightMode)
                     Spacer(Modifier.height(24.dp))
-                    StartButton(childName, selectedToy, clickPlayer, activeSessionsFromDb, scope, db, autoPrintEntrance, printerMac, printerSize, logoBase64, appName, autoPrintSDR, onClear = { childName = ""; selectedToy = null }, onDuplicate = { showDuplicateNameDialog = true }, buttonBorder = buttonBorder)
+                    StartButton(context, childName, selectedToy, clickPlayer, activeSessionsFromDb, scope, db, autoPrintEntrance, printerMac, printerSize, logoBase64, appName, autoPrintSDR, onClear = { childName = ""; selectedToy = null }, onDuplicate = { showDuplicateNameDialog = true }, buttonBorder = buttonBorder)
                 }
                 VerticalDivider(color = textColor.copy(alpha = 0.1f), modifier = Modifier.fillMaxHeight().width(1.dp))
                 Column(modifier = Modifier.weight(0.6f).fillMaxHeight().padding(start = 16.dp)) {
                     Text("CRONÔMETROS ATIVOS", color = IntenseGreen, fontSize = 18.sp, fontWeight = FontWeight.ExtraBold, style = highlightStyle)
                     Spacer(Modifier.height(12.dp))
-                    ActiveSessionsList(activeSessionsFromDb, toys, printerMac, printerSize, logoBase64, appName, isLightMode, db, scope)
+                    ActiveSessionsList(context, activeSessionsFromDb, toys, printerMac, printerSize, logoBase64, appName, isLightMode, isAdmin, db, scope)
                 }
             }
         } else {
@@ -153,11 +155,11 @@ fun HomeScreen(
                 Spacer(modifier = Modifier.height(12.dp))
                 AutoPrintOptions(autoPrintEntrance, onAutoPrintEntranceChange, autoPrintExit, onAutoPrintExitChange, autoPrintSDR, onAutoPrintSDRChange, textColor, secondaryColor, isLightMode)
                 Spacer(modifier = Modifier.height(16.dp))
-                StartButton(childName, selectedToy, clickPlayer, activeSessionsFromDb, scope, db, autoPrintEntrance, printerMac, printerSize, logoBase64, appName, autoPrintSDR, onClear = { childName = ""; selectedToy = null }, onDuplicate = { showDuplicateNameDialog = true }, buttonBorder = buttonBorder)
+                StartButton(context, childName, selectedToy, clickPlayer, activeSessionsFromDb, scope, db, autoPrintEntrance, printerMac, printerSize, logoBase64, appName, autoPrintSDR, onClear = { childName = ""; selectedToy = null }, onDuplicate = { showDuplicateNameDialog = true }, buttonBorder = buttonBorder)
                 Spacer(modifier = Modifier.height(32.dp))
                 Text("CRONÔMETROS ATIVOS", color = IntenseGreen, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, style = highlightStyle)
-                Spacer(modifier = Modifier.height(12.dp))
-                ActiveSessionsList(activeSessionsFromDb, toys, printerMac, printerSize, logoBase64, appName, isLightMode, db, scope)
+                Spacer(Modifier.height(12.dp))
+                ActiveSessionsList(context, activeSessionsFromDb, toys, printerMac, printerSize, logoBase64, appName, isLightMode, isAdmin, db, scope)
             }
         }
     }
@@ -202,8 +204,8 @@ fun HomeScreen(
                                                 Button(onClick = { showCheckoutPDV = name to sessions; showTicketsDialog = false }, colors = ButtonDefaults.buttonColors(containerColor = IntenseGreen, contentColor = Color.Black), shape = RoundedCornerShape(8.dp), modifier = Modifier.height(36.dp)) { Text("COBRAR", fontWeight = FontWeight.Black, fontSize = 11.sp) } 
                                             } else { 
                                                 Row { 
-                                                    IconButton(onClick = { if(printerMac.isNotEmpty()) BluetoothPrinterHelper.printSTRQRCode(printerMac, sessions.first(), printerSize) }) { Icon(Icons.Default.QrCode, null, tint = topIconColor) }
-                                                    IconButton(onClick = { if(printerMac.isNotEmpty()) BluetoothPrinterHelper.printChildSummary(printerMac, name, sessions.first().date, sessions, total, printerSize, logoBase64, appName) }) { Icon(Icons.Default.Print, null, tint = topIconColor) } 
+                                                    IconButton(onClick = { if(printerMac.isNotEmpty()) BluetoothPrinterHelper.printSTRQRCode(context, printerMac, sessions.first(), printerSize) }) { Icon(Icons.Default.QrCode, null, tint = topIconColor) }
+                                                    IconButton(onClick = { if(printerMac.isNotEmpty()) BluetoothPrinterHelper.printChildSummary(context, printerMac, name, sessions.first().date, sessions, total, printerSize, logoBase64, appName) }) { Icon(Icons.Default.Print, null, tint = topIconColor) } 
                                                 } 
                                             } 
                                         }
@@ -273,7 +275,7 @@ fun HomeScreen(
 
     showCheckoutPDV?.let { (name, sessions) -> 
         CheckoutPDVDialog(
-            name = name, sessions = sessions, onDismiss = { showCheckoutPDV = null }, 
+            context = context, name = name, sessions = sessions, onDismiss = { showCheckoutPDV = null }, 
             onConfirmPayment = { updated, cash, pix, card, totalBruto, paidSoFarNow, change -> 
                 scope.launch { 
                     try { cashierPlayer?.start() } catch(_:Exception){} 
@@ -282,7 +284,7 @@ fun HomeScreen(
                     finalizedSessions.forEach { db.sessionDao().insertSession(it) }
                     if (printerMac.isNotEmpty()) { 
                         val alreadyPaid = sessions.filter { it.isPaid }.sumOf { it.totalValueAccumulated }
-                        BluetoothPrinterHelper.printCheckoutReceipt(printerMac, name, sessions, totalBruto, alreadyPaid, cash, pix, card, change, printerSize, logoBase64, appName) 
+                        BluetoothPrinterHelper.printCheckoutReceipt(context, printerMac, name, sessions, totalBruto, alreadyPaid, cash, pix, card, change, printerSize, logoBase64, appName) 
                     }
                     showCheckoutPDV = null 
                 } 
@@ -316,7 +318,7 @@ fun HomeScreenHeader(isCashierMode: (Boolean) -> Unit, showTickets: (Boolean) ->
 @Composable
 fun HomeScreenInputs(childName: String, onNameChange: (String) -> Unit, selectedToy: Toy?, onShowToyPicker: () -> Unit, isPreAutoEnabled: Boolean, onPreAutoToggle: (Boolean) -> Unit, textColor: Color, secondaryColor: Color, isLightMode: Boolean) {
     Column {
-        OutlinedTextField(value = childName, onValueChange = { onNameChange(it.normalizeName()) }, label = { Text("NOME DA CRIANÇA", color = secondaryColor, fontWeight = FontWeight.Bold) }, modifier = Modifier.fillMaxWidth(), textStyle = TextStyle(color = textColor, fontWeight = FontWeight.Bold, fontSize = 18.sp), colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = IntenseGreen, unfocusedBorderColor = secondaryColor, focusedLabelColor = IntenseGreen, cursorColor = IntenseGreen), shape = RoundedCornerShape(12.dp), singleLine = true)
+        OutlinedTextField(value = childName, onValueChange = { onNameChange(it.normalizeName().uppercase()) }, label = { Text("NOME DA CRIANÇA", color = secondaryColor, fontWeight = FontWeight.Bold) }, modifier = Modifier.fillMaxWidth(), textStyle = TextStyle(color = textColor, fontWeight = FontWeight.Bold, fontSize = 18.sp), colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = IntenseGreen, unfocusedBorderColor = secondaryColor, focusedLabelColor = IntenseGreen, cursorColor = IntenseGreen), shape = RoundedCornerShape(12.dp), singleLine = true)
         Spacer(modifier = Modifier.height(12.dp))
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
             Box(modifier = Modifier.weight(1f).height(56.dp).clip(RoundedCornerShape(12.dp)).background(if (isLightMode) Color(0xFFF0F0F0) else Color(0xFF1A1A1A)).clickable { onShowToyPicker() }.border(1.dp, if (selectedToy != null) IntenseGreen else secondaryColor, RoundedCornerShape(12.dp)).padding(horizontal = 16.dp), contentAlignment = Alignment.CenterStart) { Text(selectedToy?.name?.uppercase() ?: "ESCOLHA O BRINQUEDO", color = if (selectedToy != null) textColor else secondaryColor, fontWeight = FontWeight.Bold); Icon(Icons.Default.ArrowDropDown, null, tint = IntenseGreen, modifier = Modifier.align(Alignment.CenterEnd)) }
@@ -339,25 +341,25 @@ fun AutoPrintOptions(entrance: Boolean, onEntrance: (Boolean) -> Unit, exit: Boo
 }
 
 @Composable
-fun StartButton(childName: String, selectedToy: Toy?, clickPlayer: MediaPlayer?, activeSessions: List<PlaySession>, scope: kotlinx.coroutines.CoroutineScope, db: AppDatabase, autoPrintEntrance: Boolean, printerMac: String, printerSize: String, logoBase64: String?, appName: String, autoPrintSDR: Boolean, onClear: () -> Unit, onDuplicate: () -> Unit, buttonBorder: BorderStroke?) {
+fun StartButton(context: Context, childName: String, selectedToy: Toy?, clickPlayer: MediaPlayer?, activeSessions: List<PlaySession>, scope: kotlinx.coroutines.CoroutineScope, db: AppDatabase, autoPrintEntrance: Boolean, printerMac: String, printerSize: String, logoBase64: String?, appName: String, autoPrintSDR: Boolean, onClear: () -> Unit, onDuplicate: () -> Unit, buttonBorder: BorderStroke?) {
     val interactionSource = remember { MutableInteractionSource() }; val isPressed by interactionSource.collectIsPressedAsState(); val scale by animateFloatAsState(if (isPressed) 0.92f else 1f, label = "buttonScale")
     Button(
-        onClick = { try { clickPlayer?.start() } catch (_: Exception) {}; val currentChildName = childName.normalizeName().trim(); if (activeSessions.any { it.personName.equals(currentChildName, ignoreCase = true) }) onDuplicate() else { val t = selectedToy!!; val newSession = PlaySession(personName = currentChildName, toyName = t.name, toyPrice = t.price, toyTimeMinutes = t.timeMinutes, remainingSeconds = (t.timeMinutes * 60).toLong(), lastUpdateTimestamp = System.currentTimeMillis()); scope.launch { val alreadyToday = db.sessionDao().getSessionsByPersonNameAndDate(currentChildName, newSession.date).isNotEmpty(); db.sessionDao().insertSession(newSession); if (autoPrintEntrance && printerMac.isNotEmpty()) { BluetoothPrinterHelper.printEntranceTicket(printerMac, newSession, printerSize, logoBase64, appName); delay(1500) }; if (autoPrintSDR && printerMac.isNotEmpty() && !alreadyToday) { BluetoothPrinterHelper.printSTRQRCode(printerMac, newSession, printerSize) } }; onClear() } },
+        onClick = { try { clickPlayer?.start() } catch (_: Exception) {}; val currentChildName = childName.normalizeName().trim().uppercase(); if (activeSessions.any { it.personName.equals(currentChildName, ignoreCase = true) }) onDuplicate() else { val t = selectedToy!!; val newSession = PlaySession(personName = currentChildName, toyName = t.name, toyPrice = t.price, toyTimeMinutes = t.timeMinutes, remainingSeconds = (t.timeMinutes * 60).toLong(), lastUpdateTimestamp = System.currentTimeMillis()); scope.launch { val alreadyToday = db.sessionDao().getSessionsByPersonNameAndDate(currentChildName, newSession.date).isNotEmpty(); db.sessionDao().insertSession(newSession); if (autoPrintEntrance && printerMac.isNotEmpty()) { BluetoothPrinterHelper.printEntranceTicket(context, printerMac, newSession, printerSize, logoBase64, appName); delay(1500) }; if (autoPrintSDR && printerMac.isNotEmpty() && !alreadyToday) { BluetoothPrinterHelper.printSTRQRCode(context, printerMac, newSession, printerSize) } }; onClear() } },
         enabled = childName.isNotBlank() && selectedToy != null, interactionSource = interactionSource, modifier = Modifier.fillMaxWidth().height(54.dp).graphicsLayer(scaleX = scale, scaleY = scale), colors = ButtonDefaults.buttonColors(containerColor = if (childName.isNotBlank() && selectedToy != null) IntenseGreen else Color(0xFF333333)), shape = RoundedCornerShape(27.dp), border = if(childName.isNotBlank() && selectedToy != null) buttonBorder else null
     ) { Text("INICIAR TEMPO", fontWeight = FontWeight.Black) }
 }
 
 @Composable
-fun ActiveSessionsList(activeSessions: List<PlaySession>, toys: List<Toy>, printerMac: String, printerSize: String, logoBase64: String?, appName: String, isLightMode: Boolean, db: AppDatabase, scope: kotlinx.coroutines.CoroutineScope) {
+fun ActiveSessionsList(context: Context, activeSessions: List<PlaySession>, toys: List<Toy>, printerMac: String, printerSize: String, logoBase64: String?, appName: String, isLightMode: Boolean, isAdmin: Boolean, db: AppDatabase, scope: kotlinx.coroutines.CoroutineScope) {
     LazyColumn(modifier = Modifier.fillMaxSize()) {
         items(activeSessions, key = { it.id }) { session ->
-            ActiveTimerItemUI(session, toys, activeSessions, printerMac, printerSize, logoBase64, appName, isLightMode, onFinish = { s -> scope.launch { db.sessionDao().insertSession(s.copy(isFinished = true, endTime = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date()), totalValueAccumulated = s.calculateCurrentProportionalValue())) } }, onContinue = { s -> scope.launch { db.sessionDao().insertSession(s.copy(totalValueAccumulated = s.totalValueAccumulated + s.toyPrice, elapsedSecondsInCurrentCycle = 0, remainingSeconds = (s.toyTimeMinutes * 60).toLong(), notified = false, lastUpdateTimestamp = System.currentTimeMillis())) } }, onToyChanged = { updated -> scope.launch { db.sessionDao().insertSession(updated.copy(lastUpdateTimestamp = System.currentTimeMillis())) } }, onPauseToggle = { paused, release -> scope.launch { db.sessionDao().insertSession(session.copy(isPaused = paused, isToyReleased = release, lastUpdateTimestamp = System.currentTimeMillis())) } }, onPaidToggle = { paid -> scope.launch { db.sessionDao().insertSession(session.copy(isPaid = paid)) } })
+            ActiveTimerItemUI(context, session, toys, activeSessions, printerMac, printerSize, logoBase64, appName, isLightMode, onFinish = { s -> scope.launch { db.sessionDao().insertSession(s.copy(isFinished = true, endTime = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date()), totalValueAccumulated = s.calculateCurrentProportionalValue())) } }, onContinue = { s -> scope.launch { db.sessionDao().insertSession(s.copy(totalValueAccumulated = s.totalValueAccumulated + s.toyPrice, elapsedSecondsInCurrentCycle = 0, remainingSeconds = (s.toyTimeMinutes * 60).toLong(), notified = false, lastUpdateTimestamp = System.currentTimeMillis())) } }, onToyChanged = { updated -> scope.launch { db.sessionDao().insertSession(updated.copy(lastUpdateTimestamp = System.currentTimeMillis())) } }, onPauseToggle = { paused, release -> scope.launch { db.sessionDao().insertSession(session.copy(isPaused = paused, isToyReleased = release, lastUpdateTimestamp = System.currentTimeMillis())) } }, onPaidToggle = { paid -> scope.launch { db.sessionDao().insertSession(session.copy(isPaid = paid)) } })
         }
     }
 }
 
 @Composable
-fun CheckoutPDVDialog(name: String, sessions: List<PlaySession>, onDismiss: () -> Unit, onConfirmPayment: (List<PlaySession>, Double, Double, Double, Double, Double, Double) -> Unit, isLightMode: Boolean) {
+fun CheckoutPDVDialog(context: Context, name: String, sessions: List<PlaySession>, onDismiss: () -> Unit, onConfirmPayment: (List<PlaySession>, Double, Double, Double, Double, Double, Double) -> Unit, isLightMode: Boolean) {
     val configuration = LocalConfiguration.current; val isTablet = configuration.smallestScreenWidthDp >= 600
     var cash by remember { mutableStateOf("") }; var pix by remember { mutableStateOf("") }; var card by remember { mutableStateOf("") }
     val totalBruto = sessions.sumOf { it.calculateCurrentProportionalValue() }; val alreadyPaid = sessions.filter { it.isPaid }.sumOf { it.totalValueAccumulated }
@@ -415,9 +417,9 @@ fun PDVRow(l: String, v: String, c: Color) { Row(modifier = Modifier.fillMaxWidt
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun ActiveTimerItemUI(session: PlaySession, allToys: List<Toy>, activeSessions: List<PlaySession>, printerMac: String, printerSize: String, logoBase64: String?, appName: String, isLightMode: Boolean, onFinish: (PlaySession) -> Unit, onContinue: (PlaySession) -> Unit, onToyChanged: (PlaySession) -> Unit, onPauseToggle: (Boolean, Boolean) -> Unit, onPaidToggle: (Boolean) -> Unit) {
+fun ActiveTimerItemUI(context: Context, session: PlaySession, allToys: List<Toy>, activeSessions: List<PlaySession>, printerMac: String, printerSize: String, logoBase64: String?, appName: String, isLightMode: Boolean, onFinish: (PlaySession) -> Unit, onContinue: (PlaySession) -> Unit, onToyChanged: (PlaySession) -> Unit, onPauseToggle: (Boolean, Boolean) -> Unit, onPaidToggle: (Boolean) -> Unit) {
     var showOptions by remember { mutableStateOf(false) }; var showSwapPicker by remember { mutableStateOf(false) }; var showPauseDialog by remember { mutableStateOf(false) }; var showResetDialog by remember { mutableStateOf<Toy?>(null) }
-    val scope = rememberCoroutineScope(); val context = LocalContext.current; var forceOriginalTimer by rememberSaveable { mutableStateOf(false) }; val isExpired = session.remainingSeconds <= 0L; val isLowTime = session.remainingSeconds > 0 && session.remainingSeconds < 60L; val currentVal = session.calculateCurrentProportionalValue(); val highlightStyle = getHighlightStyle(isLightMode); val density = LocalDensity.current; var paymentClicks by remember { mutableIntStateOf(0) }; val cashPlayer = remember { MediaPlayer.create(context, R.raw.caixa) }
+    val scope = rememberCoroutineScope(); var forceOriginalTimer by rememberSaveable { mutableStateOf(false) }; val isExpired = session.remainingSeconds <= 0L; val isLowTime = session.remainingSeconds > 0 && session.remainingSeconds < 60L; val currentVal = session.calculateCurrentProportionalValue(); val highlightStyle = getHighlightStyle(isLightMode); val density = LocalDensity.current; var paymentClicks by remember { mutableIntStateOf(0) }; val cashPlayer = remember { MediaPlayer.create(context, R.raw.caixa) }
     val swipeState = remember { AnchoredDraggableState<DragAnchors>(initialValue = DragAnchors.Center, positionalThreshold = { distance: Float -> distance * 0.5f }, velocityThreshold = { with(density) { 100.dp.toPx() } }, snapAnimationSpec = spring(), decayAnimationSpec = exponentialDecay()) }
     SideEffect { swipeState.updateAnchors(DraggableAnchors { DragAnchors.Start at -with(density) { 150.dp.toPx() }; DragAnchors.Center at 0f; DragAnchors.End at with(density) { 150.dp.toPx() } }) }; val currentOffset = try { swipeState.requireOffset() } catch (_: Exception) { 0f }; LaunchedEffect(session.isPaid) { if (!session.isPaid) forceOriginalTimer = false }
     Box(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp).clip(RoundedCornerShape(16.dp))) {
@@ -435,7 +437,8 @@ fun ActiveTimerItemUI(session: PlaySession, allToys: List<Toy>, activeSessions: 
     if (showPauseDialog) { AlertDialog(onDismissRequest = { showPauseDialog = false }, containerColor = if(isLightMode) Color.White else Color(0xFF1A1A1A) , title = { Text("LIBERAR BRINQUEDO?", color = IntenseGreen, fontWeight = FontWeight.Bold) }, text = { Text("Deseja liberar o brinquedo '${session.toyName}'?", color = if(isLightMode) Color.Black else Color.White) }, confirmButton = { TextButton(onClick = { onPauseToggle(true, true); showPauseDialog = false; showOptions = false }) { Text("SIM", color = IntenseGreen, fontWeight = FontWeight.Bold) } }, dismissButton = { TextButton(onClick = { onPauseToggle(true, false); showPauseDialog = false; showOptions = false }) { Text("NÃO", color = if(isLightMode) Color.Black else Color.Gray, fontWeight = FontWeight.Bold) } }) }
     if (showResetDialog != null) { val newToy = showResetDialog!!; AlertDialog(onDismissRequest = { showResetDialog = null }, containerColor = if(isLightMode) Color.White else Color(0xFF1A1A1A), title = { Text("REINICIAR?", color = IntenseGreen, fontWeight = FontWeight.Bold) }, text = { Text("Reiniciar para ${newToy.timeMinutes} min?", color = if(isLightMode) Color.Black else Color.White) }, confirmButton = { TextButton(onClick = { val earned = (session.elapsedSecondsInCurrentCycle.toDouble() / (session.toyTimeMinutes * 60.0).coerceAtLeast(1.0)) * session.toyPrice; onToyChanged(session.copy(toyName = newToy.name, toyPrice = newToy.price, toyTimeMinutes = newToy.timeMinutes, totalValueAccumulated = session.totalValueAccumulated + earned, elapsedSecondsInCurrentCycle = 0, remainingSeconds = (newToy.timeMinutes * 60).toLong(), isToyReleased = false)); showResetDialog = null }) { Text("SIM", color = IntenseGreen, fontWeight = FontWeight.Bold) } }, dismissButton = { TextButton(onClick = { val earned = (session.elapsedSecondsInCurrentCycle.toDouble() / (session.toyTimeMinutes * 60.0).coerceAtLeast(1.0)) * session.toyPrice; onToyChanged(session.copy(toyName = newToy.name, toyPrice = newToy.price, toyTimeMinutes = newToy.timeMinutes, totalValueAccumulated = session.totalValueAccumulated + earned, isToyReleased = false)); showResetDialog = null }) { Text("NÃO", color = if(isLightMode) Color.Black else Color.Gray, fontWeight = FontWeight.Bold) } }) }
     if (showOptions) { AlertDialog(onDismissRequest = { showOptions = false }, containerColor = if(isLightMode) Color.White else Color(0xFF212121), title = { Text("OPÇÕES", color = IntenseGreen, fontWeight = FontWeight.Black, style = highlightStyle) }, text = { Text("Ações para ${session.personName}:", color = if(isLightMode) Color.Black else Color.White) }, confirmButton = { Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) { Button(onClick = { if (session.isPaused) { onPauseToggle(false, false); showOptions = false } else { showPauseDialog = true } }, modifier = Modifier.weight(1f).height(50.dp), colors = ButtonDefaults.buttonColors(containerColor = IntenseGreen, contentColor = Color.Black), shape = RoundedCornerShape(25.dp)) { Text(if(session.isPaused) "RETOMAR" else "PAUSAR", fontSize = 11.sp, fontWeight = FontWeight.Bold) }; Button(onClick = { showSwapPicker = true; showOptions = false }, modifier = Modifier.weight(1f).height(50.dp), colors = ButtonDefaults.buttonColors(containerColor = Color.Blue), shape = RoundedCornerShape(25.dp)) { Text("TROCAR", fontSize = 11.sp, fontWeight = FontWeight.Bold) } } }, dismissButton = { TextButton(onClick = { onFinish(session); showOptions = false }) { Text("ENCERRAR", color = Color.Red, fontWeight = FontWeight.ExtraBold) } }) }
-    if (showSwapPicker) { AlertDialog(onDismissRequest = { showSwapPicker = false }, containerColor = if(isLightMode) Color.White else Color(0xFF1A1A1A), title = { Text("TROCAR BRINQUEDO", color = IntenseGreen, style = highlightStyle) }, text = { LazyColumn { items(allToys) { toy -> val isOccupied = !toy.isAlwaysFree && activeSessions.any { it.toyName == toy.name && !it.isFinished && !it.isToyReleased }; Row(modifier = Modifier.fillMaxWidth().clickable(enabled = !isOccupied) { showResetDialog = toy; showSwapPicker = false }.padding(12.dp), verticalAlignment = Alignment.CenterVertically) { Box(modifier = Modifier.size(50.dp).background(if(isLightMode) Color(0xFFF5F5F5) else Color(0xFF222222), RoundedCornerShape(8.dp)).clip(RoundedCornerShape(8.dp)), contentAlignment = Alignment.Center) { val bitmap = base64ToBitmap(toy.imageBase64); if (bitmap != null) Image(bitmap = bitmap.asImageBitmap(), contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) else Icon(Icons.Default.Toys, null, tint = IntenseGreen, modifier = Modifier.size(24.dp)) }; Spacer(Modifier.width(16.dp)); Text(toy.name.uppercase(), color = if(isOccupied) Color.Red else if(isLightMode) Color.Black else Color.White, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Bold); if(isOccupied) Text("OCUPADO", color = Color.Red, fontSize = 10.sp, modifier = Modifier.padding(end = 8.dp), fontWeight = FontWeight.Black); Text("R$ %.2f".format(toy.price), color = if(isOccupied) Color.Red else IntenseGreen, fontWeight = FontWeight.Bold) } } } }, confirmButton = { TextButton(onClick = { showSwapPicker = false }) { Text("VOLTAR", color = IntenseGreen, fontWeight = FontWeight.Bold) } }) }
+    if (showSwapPicker) { AlertDialog(onDismissRequest = { showSwapPicker = false }, containerColor = if(isLightMode) Color.White else Color(0xFF1A1A1A), title = { Text("TROCAR BRINQUEDO", color = IntenseGreen, style = highlightStyle) }, text = { LazyColumn { items(allToys) { toy -> val isOccupied = !toy.isAlwaysFree && activeSessions.any { it.toyName == toy.name && !it.isFinished && !it.isToyReleased }; Row(modifier = Modifier.fillMaxWidth().clickable(enabled = !isOccupied) { showResetDialog = toy; showSwapPicker = false }.padding(12.dp), verticalAlignment = Alignment.CenterVertically) { Box(modifier = Modifier.size(50.dp).background(if(isLightMode) Color(0xFFF5F5F5) else Color(0xFF222222), RoundedCornerShape(8.dp)).clip(RoundedCornerShape(8.dp)), contentAlignment = Alignment.Center) { val bitmap = base64ToBitmap(toy.imageBase64)
+                                if (bitmap != null) Image(bitmap = bitmap.asImageBitmap(), contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) else Icon(Icons.Default.Toys, null, tint = IntenseGreen, modifier = Modifier.size(24.dp)) }; Spacer(Modifier.width(16.dp)); Text(toy.name.uppercase(), color = if(isOccupied) Color.Red else if(isLightMode) Color.Black else Color.White, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Bold); if(isOccupied) Text("OCUPADO", color = Color.Red, fontSize = 10.sp, modifier = Modifier.padding(end = 8.dp), fontWeight = FontWeight.Black); Text("R$ %.2f".format(toy.price), color = if(isOccupied) Color.Red else IntenseGreen, fontWeight = FontWeight.Bold) } } } }, confirmButton = { TextButton(onClick = { showSwapPicker = false }) { Text("VOLTAR", color = IntenseGreen, fontWeight = FontWeight.Bold) } }) }
 }
 
 @Composable

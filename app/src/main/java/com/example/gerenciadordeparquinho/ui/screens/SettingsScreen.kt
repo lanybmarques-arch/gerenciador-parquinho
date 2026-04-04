@@ -8,6 +8,8 @@ import android.bluetooth.BluetoothManager
 import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.BitmapFactory
+import android.hardware.usb.UsbDevice
+import android.hardware.usb.UsbManager
 import android.os.Build
 import android.util.Base64
 import android.widget.Toast
@@ -70,6 +72,10 @@ fun SettingsScreen(
     val bluetoothManager = context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
     val bluetoothAdapter: BluetoothAdapter? = bluetoothManager.adapter
     var pairedDevices by remember { mutableStateOf<List<BluetoothDevice>>(emptyList()) }
+
+    // Gerenciador USB
+    val usbManager = context.getSystemService(Context.USB_SERVICE) as UsbManager
+    val usbDevices = remember { usbManager.deviceList.values.toList() }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -159,7 +165,7 @@ fun SettingsScreen(
                     } catch (e: Exception) { null }
                 }
                 bitmap?.let {
-                    Box(modifier = Modifier.fillMaxWidth().height(120.dp).background(if(isLightMode) Color(0xFFF0F0F0) else Color.Transparent), contentAlignment = Alignment.Center) {
+                    Box(modifier = Modifier.fillMaxWidth().height(120.dp).background(if(isLightMode) Color(0xFFF0F0F0) else Color(0xFF1A1A1A)), contentAlignment = Alignment.Center) {
                         Image(bitmap = it.asImageBitmap(), contentDescription = "Preview Logo", modifier = Modifier.fillMaxHeight())
                     }
                 }
@@ -194,10 +200,13 @@ fun SettingsScreen(
         Spacer(modifier = Modifier.height(24.dp))
 
         Text("IMPRESSORA BLUETOOTH", color = IntenseGreen, fontSize = 14.sp, fontWeight = FontWeight.ExtraBold, style = highlightStyle)
+        if (pairedDevices.isEmpty()) {
+            Text("Nenhum dispositivo Bluetooth pareado.", color = Color.Gray, fontSize = 12.sp, modifier = Modifier.padding(vertical = 8.dp))
+        }
         pairedDevices.forEach { device ->
             val isSelected = printerMac == device.address
             Row(modifier = Modifier.fillMaxWidth().clickable { onPrinterChange(device.address) }.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.Print, null, tint = if(isSelected) IntenseGreen else if(isLightMode) Color.Black else Color.Gray)
+                Icon(Icons.Default.Bluetooth, null, tint = if(isSelected) IntenseGreen else if(isLightMode) Color.Black else Color.Gray)
                 Spacer(modifier = Modifier.width(16.dp))
                 Column {
                     Text(device.name ?: "Desconhecido", color = if(isSelected) IntenseGreen else textColor, fontWeight = FontWeight.Bold)
@@ -208,8 +217,27 @@ fun SettingsScreen(
 
         Spacer(modifier = Modifier.height(24.dp))
 
+        Text("IMPRESSORA USB", color = IntenseGreen, fontSize = 14.sp, fontWeight = FontWeight.ExtraBold, style = highlightStyle)
+        if (usbDevices.isEmpty()) {
+            Text("Nenhuma impressora USB detectada.", color = Color.Gray, fontSize = 12.sp, modifier = Modifier.padding(vertical = 8.dp))
+        }
+        usbDevices.forEach { device ->
+            val deviceId = "USB:${device.deviceName}"
+            val isSelected = printerMac == deviceId
+            Row(modifier = Modifier.fillMaxWidth().clickable { onPrinterChange(deviceId) }.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Usb, null, tint = if(isSelected) IntenseGreen else if(isLightMode) Color.Black else Color.Gray)
+                Spacer(modifier = Modifier.width(16.dp))
+                Column {
+                    Text(device.productName ?: "Impressora USB", color = if(isSelected) IntenseGreen else textColor, fontWeight = FontWeight.Bold)
+                    Text("Device ID: ${device.deviceId}", color = if(isLightMode) Color.DarkGray else Color.Gray, fontSize = 12.sp, fontWeight = if(isLightMode) FontWeight.Bold else FontWeight.Normal)
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(32.dp))
+
         Button(
-            onClick = { BluetoothPrinterHelper.printTest(printerMac) { _, m -> Toast.makeText(context, m, Toast.LENGTH_SHORT).show() } }, 
+            onClick = { BluetoothPrinterHelper.printTest(context, printerMac) { _, m -> Toast.makeText(context, m, Toast.LENGTH_SHORT).show() } },
             modifier = Modifier.fillMaxWidth().height(56.dp), 
             colors = ButtonDefaults.buttonColors(containerColor = IntenseGreen, contentColor = Color.Black), 
             shape = RoundedCornerShape(28.dp),

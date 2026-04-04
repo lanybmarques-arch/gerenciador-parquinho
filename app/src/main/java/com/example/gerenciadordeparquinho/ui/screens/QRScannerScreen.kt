@@ -67,7 +67,7 @@ fun QRScannerScreen(
     val infiniteTransition = rememberInfiniteTransition(label = "scannerLine")
     val lineOffset by infiniteTransition.animateFloat(
         initialValue = 0.2f, targetValue = 0.8f,
-        animationSpec = infiniteRepeatable(animation = tween(1500, easing = LinearEasing), repeatMode = RepeatMode.Reverse),
+        animationSpec = infiniteRepeatable(animation = tween(1500, easing = FastOutSlowInEasing), repeatMode = RepeatMode.Reverse),
         label = "lineOffset"
     )
 
@@ -105,7 +105,7 @@ fun QRScannerScreen(
                                                         if (summary != null) {
                                                             showResultDialog = summary
                                                             if (autoPrint && printerMac.isNotEmpty()) {
-                                                                BluetoothPrinterHelper.printChildSummary(printerMac, summary.name, summary.date, summary.sessions, summary.totalToPay, printerSize, logoBase64, appName)
+                                                                BluetoothPrinterHelper.printChildSummary(context, printerMac, summary.name, summary.date, summary.sessions, summary.totalToPay, printerSize, logoBase64, appName)
                                                             }
                                                         } else if (qrData.startsWith("SDR|")) showNotFoundDialog = true
                                                     }
@@ -187,7 +187,7 @@ fun QRScannerScreen(
                     }
                 }
             },
-            confirmButton = { Button(onClick = { if (printerMac.isNotEmpty()) BluetoothPrinterHelper.printChildSummary(printerMac, summary.name, summary.date, summary.sessions, summary.totalToPay, printerSize, logoBase64, appName) }, modifier = Modifier.fillMaxWidth().height(50.dp), colors = ButtonDefaults.buttonColors(containerColor = IntenseGreen, contentColor = Color.Black), shape = RoundedCornerShape(25.dp)) { Icon(Icons.Default.Print, null, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("IMPRIMIR NOTA", fontWeight = FontWeight.Black) } },
+            confirmButton = { Button(onClick = { if (printerMac.isNotEmpty()) BluetoothPrinterHelper.printChildSummary(context, printerMac, summary.name, summary.date, summary.sessions, summary.totalToPay, printerSize, logoBase64, appName) }, modifier = Modifier.fillMaxWidth().height(50.dp), colors = ButtonDefaults.buttonColors(containerColor = IntenseGreen, contentColor = Color.Black), shape = RoundedCornerShape(25.dp)) { Icon(Icons.Default.Print, null, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("IMPRIMIR NOTA", fontWeight = FontWeight.Black) } },
             dismissButton = { TextButton(onClick = { showResultDialog = null }, modifier = Modifier.fillMaxWidth()) { Text("FECHAR", color = Color.Red, fontWeight = FontWeight.Bold) } }
         )
     }
@@ -209,7 +209,7 @@ suspend fun processQRData(qrData: String, db: AppDatabase): ScannerSummary? {
     return try {
         val parts = qrData.split("|")
         if (parts.size >= 3) {
-            val name = parts[1].normalizeName().trim() // NORMALIZA O NOME DO QR CODE
+            val name = parts[1].normalizeName().trim()
             val date = parts[2].trim()
             val sessions = db.sessionDao().getSessionsByPersonNameAndDate(name, date)
             if (sessions.isNotEmpty()) {

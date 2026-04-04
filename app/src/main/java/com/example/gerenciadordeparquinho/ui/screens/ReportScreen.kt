@@ -133,6 +133,7 @@ fun ReportScreen(
                     onPrint = {
                         if (printerMac.isNotEmpty()) {
                             BluetoothPrinterHelper.printEntranceTicket(
+                                context = context,
                                 macAddress = printerMac,
                                 session = session,
                                 size = printerSize,
@@ -168,6 +169,7 @@ fun ReportScreen(
                 onClick = { 
                     if (printerMac.isNotEmpty()) {
                         BluetoothPrinterHelper.printReport(
+                            context = context,
                             macAddress = printerMac,
                             history = sessionsToday,
                             total = totalApurado,

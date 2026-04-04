@@ -73,13 +73,9 @@ class TimerService : Service() {
                                 )
                                 
                                 if (newRemaining <= 0 && !session.notified) {
-                                    // 1. DISPARA NOTIFICAÇÃO NO TOPO
                                     showAlertNotification(session.personName, session.toyName)
-                                    
-                                    // 2. CALCULA O VALOR ATUAL (PROPORCIONAL)
                                     val currentVal = updatedSession.calculateCurrentProportionalValue()
 
-                                    // 3. VERIFICA IMPRESSÃO AUTOMÁTICA DE SAÍDA
                                     val autoPrintExit = sharedPrefs.getBoolean("auto_print_exit", false)
                                     val printerMac = sharedPrefs.getString("last_printer_mac", "") ?: ""
                                     val printerSize = sharedPrefs.getString("last_printer_size", "58mm") ?: "58mm"
@@ -88,6 +84,7 @@ class TimerService : Service() {
 
                                     if (autoPrintExit && printerMac.isNotEmpty()) {
                                         BluetoothPrinterHelper.printEntranceTicket(
+                                            context = this@TimerService,
                                             macAddress = printerMac,
                                             session = updatedSession.copy(totalValueAccumulated = currentVal, isFinished = true),
                                             size = printerSize,
@@ -118,7 +115,7 @@ class TimerService : Service() {
             val channel = NotificationChannel(channelId, "Alertas de Tempo", NotificationManager.IMPORTANCE_HIGH).apply {
                 enableVibration(true)
                 vibrationPattern = longArrayOf(0, 800, 200, 800)
-                setBypassDnd(true) // Pula o Não Perturbe se permitido
+                setBypassDnd(true)
             }
             manager.createNotificationChannel(channel)
         }
@@ -136,7 +133,7 @@ class TimerService : Service() {
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setVibrate(longArrayOf(0, 800, 200, 800))
             .setContentIntent(pendingIntent)
-            .setFullScreenIntent(pendingIntent, true) // FORÇA O POP-UP NO TOPO (Heads-up)
+            .setFullScreenIntent(pendingIntent, true)
             .setAutoCancel(true)
             .setDefaults(NotificationCompat.DEFAULT_ALL)
 
