@@ -3,7 +3,6 @@ package com.example.gerenciadordeparquinho.ui.screens
 import android.app.DatePickerDialog
 import android.content.Context
 import android.media.MediaPlayer
-import android.widget.Toast
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
@@ -48,9 +47,9 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.example.gerenciadordeparquinho.R
+import com.example.gerenciadordeparquinho.data.repository.AppDatabase
 import com.example.gerenciadordeparquinho.data.model.PlaySession
 import com.example.gerenciadordeparquinho.data.model.Toy
-import com.example.gerenciadordeparquinho.data.repository.AppDatabase
 import com.example.gerenciadordeparquinho.ui.theme.IntenseGreen
 import com.example.gerenciadordeparquinho.ui.theme.getHighlightStyle
 import com.example.gerenciadordeparquinho.utils.BluetoothPrinterHelper
@@ -96,6 +95,7 @@ fun HomeScreen(
     var showScanner by remember { mutableStateOf(false) }
     var isPreAutoScannerActive by remember { mutableStateOf(false) }
     var showCheckoutPDV by remember { mutableStateOf<Pair<String, List<PlaySession>>?>(null) }
+    var selectedForMerge by remember { mutableStateOf(setOf<String>()) }
     
     val toys by db.toyDao().getAllToys().collectAsState(initial = emptyList())
     val activeSessionsFromDb by db.sessionDao().getActiveSessions().collectAsState(initial = emptyList())
@@ -132,7 +132,7 @@ fun HomeScreen(
         if (isWideScreen) {
             Row(modifier = Modifier.fillMaxSize().padding(16.dp)) {
                 Column(modifier = Modifier.weight(0.4f).fillMaxHeight().verticalScroll(rememberScrollState()).padding(end = 16.dp)) {
-                    HomeScreenHeader(isCashierMode = { isCashierMode = it }, showTickets = { showTicketsDialog = it }, showScanner = { showScanner = it }, topIconColor = topIconColor)
+                    HomeScreenHeader(isCashierMode = { isCashierMode = it }, showTickets = { showTicketsDialog = it; if(!it) selectedForMerge = emptySet() }, showScanner = { showScanner = it }, topIconColor = topIconColor)
                     Spacer(Modifier.height(24.dp))
                     HomeScreenInputs(childName = childName, onNameChange = { childName = it }, selectedToy = selectedToy, onShowToyPicker = { showToyPicker = true }, isPreAutoEnabled = isPreAutoEnabled, onPreAutoToggle = onPreAutoToggle, textColor = textColor, secondaryColor = secondaryColor, isLightMode = isLightMode)
                     Spacer(Modifier.height(16.dp))
@@ -149,14 +149,14 @@ fun HomeScreen(
             }
         } else {
             Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-                HomeScreenHeader(isCashierMode = { isCashierMode = it }, showTickets = { showTicketsDialog = it }, showScanner = { showScanner = it }, topIconColor = topIconColor)
-                Spacer(modifier = Modifier.height(16.dp))
+                HomeScreenHeader(isCashierMode = { isCashierMode = it }, showTickets = { showTicketsDialog = it; if(!it) selectedForMerge = emptySet() }, showScanner = { showScanner = it }, topIconColor = topIconColor)
+                Spacer(Modifier.height(16.dp))
                 HomeScreenInputs(childName = childName, onNameChange = { childName = it }, selectedToy = selectedToy, onShowToyPicker = { showToyPicker = true }, isPreAutoEnabled = isPreAutoEnabled, onPreAutoToggle = onPreAutoToggle, textColor = textColor, secondaryColor = secondaryColor, isLightMode = isLightMode)
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(Modifier.height(12.dp))
                 AutoPrintOptions(autoPrintEntrance, onAutoPrintEntranceChange, autoPrintExit, onAutoPrintExitChange, autoPrintSDR, onAutoPrintSDRChange, textColor, secondaryColor, isLightMode)
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(Modifier.height(16.dp))
                 StartButton(context, childName, selectedToy, clickPlayer, activeSessionsFromDb, scope, db, autoPrintEntrance, printerMac, printerSize, logoBase64, appName, autoPrintSDR, onClear = { childName = ""; selectedToy = null }, onDuplicate = { showDuplicateNameDialog = true }, buttonBorder = buttonBorder)
-                Spacer(modifier = Modifier.height(32.dp))
+                Spacer(Modifier.height(32.dp))
                 Text("CRONÔMETROS ATIVOS", color = IntenseGreen, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, style = highlightStyle)
                 Spacer(Modifier.height(12.dp))
                 ActiveSessionsList(context, activeSessionsFromDb, toys, printerMac, printerSize, logoBase64, appName, isLightMode, isAdmin, db, scope)
@@ -186,6 +186,15 @@ fun HomeScreen(
                             selectedDate = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).format(c.time) 
                         }, Calendar.getInstance().get(Calendar.YEAR), Calendar.getInstance().get(Calendar.MONTH), Calendar.getInstance().get(Calendar.DAY_OF_MONTH)).show() 
                     }) { Icon(Icons.Default.CalendarToday, null, tint = IntenseGreen, modifier = Modifier.size(22.dp)) } 
+                    
+                    if (isCashierMode && selectedForMerge.size > 1) {
+                        IconButton(onClick = {
+                            val mergedNames = selectedForMerge.sorted().joinToString(" - ")
+                            val mergedSessions = grouped.filter { it.key in selectedForMerge }.values.flatten().filter { !it.isPaid || !it.isFinished }
+                            showCheckoutPDV = mergedNames to mergedSessions
+                            showTicketsDialog = false
+                        }) { Icon(Icons.AutoMirrored.Filled.MergeType, "Juntar", tint = IntenseGreen, modifier = Modifier.size(26.dp)) }
+                    }
                 } 
             },
             text = { 
@@ -201,6 +210,8 @@ fun HomeScreen(
                                             Spacer(Modifier.width(8.dp))
                                             Text(name, color = textColor, fontWeight = FontWeight.Black, fontSize = 16.sp, modifier = Modifier.weight(1f))
                                             if (isCashierMode) { 
+                                                Checkbox(checked = selectedForMerge.contains(name), onCheckedChange = { checked -> selectedForMerge = if (checked) selectedForMerge + name else selectedForMerge - name }, colors = CheckboxDefaults.colors(checkedColor = IntenseGreen, uncheckedColor = textColor.copy(alpha = 0.6f)))
+                                                Spacer(Modifier.width(4.dp))
                                                 Button(onClick = { showCheckoutPDV = name to sessions; showTicketsDialog = false }, colors = ButtonDefaults.buttonColors(containerColor = IntenseGreen, contentColor = Color.Black), shape = RoundedCornerShape(8.dp), modifier = Modifier.height(36.dp)) { Text("COBRAR", fontWeight = FontWeight.Black, fontSize = 11.sp) } 
                                             } else { 
                                                 Row { 
@@ -247,13 +258,7 @@ fun HomeScreen(
                 LazyColumn(modifier = Modifier.heightIn(max = 400.dp)) { 
                     items(toys) { toy -> 
                         val isOccupied = !toy.isAlwaysFree && activeSessionsFromDb.any { it.toyName == toy.name && !it.isFinished && !it.isToyReleased }
-                        Row(
-                            modifier = Modifier.fillMaxWidth().clickable(enabled = !isOccupied) { 
-                                selectedToy = toy
-                                showToyPicker = false
-                                if (isPreAutoEnabled && childName.trim().isEmpty()) { isPreAutoScannerActive = true } 
-                            }.padding(12.dp), verticalAlignment = Alignment.CenterVertically
-                        ) { 
+                        Row(modifier = Modifier.fillMaxWidth().clickable(enabled = !isOccupied) { selectedToy = toy; showToyPicker = false; if (isPreAutoEnabled && childName.trim().isEmpty()) { isPreAutoScannerActive = true } }.padding(12.dp), verticalAlignment = Alignment.CenterVertically) { 
                             Box(modifier = Modifier.size(50.dp).background(if(isLightMode) Color(0xFFF5F5F5) else Color(0xFF222222), RoundedCornerShape(8.dp)).clip(RoundedCornerShape(8.dp)), contentAlignment = Alignment.Center) { 
                                 val bitmap = base64ToBitmap(toy.imageBase64)
                                 if (bitmap != null) Image(bitmap = bitmap.asImageBitmap(), contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
@@ -274,22 +279,7 @@ fun HomeScreen(
     }
 
     showCheckoutPDV?.let { (name, sessions) -> 
-        CheckoutPDVDialog(
-            context = context, name = name, sessions = sessions, onDismiss = { showCheckoutPDV = null }, 
-            onConfirmPayment = { updated, cash, pix, card, totalBruto, paidSoFarNow, change -> 
-                scope.launch { 
-                    try { cashierPlayer?.start() } catch(_:Exception){} 
-                    val nowTime = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
-                    val finalizedSessions = updated.map { s -> s.copy(isPaid = true, isFinished = true, endTime = nowTime, totalValueAccumulated = s.calculateCurrentProportionalValue(), remainingSeconds = 0, isPaused = false, isToyReleased = true) }
-                    finalizedSessions.forEach { db.sessionDao().insertSession(it) }
-                    if (printerMac.isNotEmpty()) { 
-                        val alreadyPaid = sessions.filter { it.isPaid }.sumOf { it.totalValueAccumulated }
-                        BluetoothPrinterHelper.printCheckoutReceipt(context, printerMac, name, sessions, totalBruto, alreadyPaid, cash, pix, card, change, printerSize, logoBase64, appName) 
-                    }
-                    showCheckoutPDV = null 
-                } 
-            }, isLightMode = isLightMode
-        ) 
+        CheckoutPDVDialog(context = context, name = name, sessions = sessions, onDismiss = { showCheckoutPDV = null }, onConfirmPayment = { updated, cash, pix, card, totalBruto, paidSoFarNow, change -> scope.launch { try { cashierPlayer?.start() } catch(_:Exception){} ; val nowTime = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date()); val finalizedSessions = updated.map { s -> s.copy(isPaid = true, isFinished = true, endTime = nowTime, totalValueAccumulated = s.calculateCurrentProportionalValue(), remainingSeconds = 0, isPaused = false, isToyReleased = true) }; finalizedSessions.forEach { db.sessionDao().insertSession(it) }; if (printerMac.isNotEmpty()) { val alreadyPaid = sessions.filter { it.isPaid }.sumOf { it.totalValueAccumulated }; BluetoothPrinterHelper.printCheckoutReceipt(context, printerMac, name, sessions, totalBruto, alreadyPaid, cash, pix, card, change, printerSize, logoBase64, appName) }; showCheckoutPDV = null; selectedForMerge = emptySet() } }, isLightMode = isLightMode) 
     }
 
     if (showDuplicateNameDialog) { AlertDialog(onDismissRequest = { showDuplicateNameDialog = false }, containerColor = if(isLightMode) Color.White else Color(0xFF1A1A1A), title = { Text("NOME EM USO!", color = Color.Red, fontWeight = FontWeight.Bold) }, text = { Text("Já existe um tempo aberto para '$childName'.", color = if(isLightMode) Color.Black else Color.White) }, confirmButton = { TextButton(onClick = { showDuplicateNameDialog = false }) { Text("ENTENDI", color = IntenseGreen, fontWeight = FontWeight.Bold) } }) }
@@ -365,7 +355,7 @@ fun CheckoutPDVDialog(context: Context, name: String, sessions: List<PlaySession
     val totalBruto = sessions.sumOf { it.calculateCurrentProportionalValue() }; val alreadyPaid = sessions.filter { it.isPaid }.sumOf { it.totalValueAccumulated }
     val totalToPayNow = (totalBruto - alreadyPaid).coerceAtLeast(0.0); val paidSoFarNow = (cash.toDoubleOrNull() ?: 0.0) + (pix.toDoubleOrNull() ?: 0.0) + (card.toDoubleOrNull() ?: 0.0)
     val remaining = (totalToPayNow - paidSoFarNow).coerceAtLeast(0.0); val change = (paidSoFarNow - totalToPayNow).coerceAtLeast(0.0)
-    val bgColor = if (isLightMode) Color.White else Color(0xFF121212); val textColor = if (isLightMode) Color.Black else Color.White; val cardBg = if (isLightMode) Color(0xFFF5F5F5) else Color(0xFF1E1E1E)
+    val bgColor = if (isLightMode) Color.White else Color(0xFF121212); val textColor = if (isLightMode) Color.Black else Color(0xFFE0E0E0); val cardBg = if (isLightMode) Color(0xFFF5F5F5) else Color(0xFF1E1E1E)
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(modifier = Modifier.fillMaxSize(), color = bgColor) {
             Column(modifier = Modifier.fillMaxSize()) {
@@ -386,12 +376,39 @@ fun CheckoutPDVDialog(context: Context, name: String, sessions: List<PlaySession
 @Composable
 fun PDVDetailsSection(sessions: List<PlaySession>, total: Double, alreadyPaid: Double, cardBg: Color, textColor: Color) {
     val beigeColor = Color(0xFFF5F5DC); val contentColor = Color.Black 
+    val isMerged = sessions.map { it.personName.trim().uppercase() }.distinct().size > 1
     Text("VALORES DETALHADOS", color = textColor, fontSize = 12.sp, fontWeight = FontWeight.Black); Spacer(Modifier.height(12.dp))
     Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = beigeColor), shape = RoundedCornerShape(12.dp)) {
         Column(modifier = Modifier.padding(16.dp)) {
-            val unpaid = sessions.filter { !it.isPaid }; val paid = sessions.filter { it.isPaid }
-            unpaid.groupBy { it.toyName to it.toyPrice }.forEach { (key, list) -> val unitPrice = key.second; val subTotal = list.sumOf { it.calculateCurrentProportionalValue() }; val qty = if (unitPrice > 0) subTotal / unitPrice else 1.0; val qtyDisplay = if (qty % 1.0 == 0.0) qty.toInt().toString() else "%.1f".format(qty).replace(".", ","); Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) { Text("${key.first.uppercase()} ${qtyDisplay}X R$ %.2f".format(unitPrice), modifier = Modifier.weight(1f), color = contentColor, fontSize = 14.sp, fontWeight = FontWeight.Bold); Text("R$ %.2f".format(subTotal), color = contentColor, fontWeight = FontWeight.Black, fontSize = 14.sp) } }
-            paid.groupBy { it.toyName to it.toyPrice }.forEach { (key, list) -> val unitPrice = key.second; val subTotal = list.sumOf { it.totalValueAccumulated }; val qty = if (unitPrice > 0) subTotal / unitPrice else 1.0; val qtyDisplay = if (qty % 1.0 == 0.0) qty.toInt().toString() else "%.1f".format(qty).replace(".", ","); Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) { Text("${key.first.uppercase()} ${qtyDisplay}X R$ %.2f".format(unitPrice), modifier = Modifier.weight(1f), color = contentColor, fontSize = 14.sp, fontWeight = FontWeight.Bold); Text("- R$ %.2f".format(subTotal), color = contentColor, fontWeight = FontWeight.Black, fontSize = 14.sp) } }
+            if (isMerged) {
+                sessions.groupBy { it.personName.trim().uppercase() }.forEach { (childName, childSessions) ->
+                    Text(childName, color = Color.Gray, fontSize = 10.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.padding(top = 8.dp))
+                    val unpaid = childSessions.filter { !it.isPaid }
+                    val paid = childSessions.filter { it.isPaid }
+                    unpaid.groupBy { it.toyName to it.toyPrice }.forEach { (key, list) -> 
+                        val unitPrice = key.second; val subTotal = list.sumOf { it.calculateCurrentProportionalValue() }
+                        val qty = if (unitPrice > 0) subTotal / unitPrice else 1.0
+                        val qtyDisplay = if (qty % 1.0 == 0.0) qty.toInt().toString() else "%.1f".format(qty).replace(".", ",")
+                        Row(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) { 
+                            Text("${key.first.uppercase()} ${qtyDisplay}X", modifier = Modifier.weight(1f), color = contentColor, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            Text("R$ %.2f".format(subTotal), color = contentColor, fontWeight = FontWeight.Black, fontSize = 13.sp) 
+                        } 
+                    }
+                    paid.groupBy { it.toyName to it.toyPrice }.forEach { (key, list) -> 
+                        val unitPrice = key.second; val subTotal = list.sumOf { it.totalValueAccumulated }
+                        val qty = if (unitPrice > 0) subTotal / unitPrice else 1.0
+                        val qtyDisplay = if (qty % 1.0 == 0.0) qty.toInt().toString() else "%.1f".format(qty).replace(".", ",")
+                        Row(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) { 
+                            Text("${key.first.uppercase()} ${qtyDisplay}X", modifier = Modifier.weight(1f), color = contentColor, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            Text("- R$ %.2f".format(subTotal), color = contentColor, fontWeight = FontWeight.Black, fontSize = 13.sp) 
+                        } 
+                    }
+                }
+            } else {
+                val unpaid = sessions.filter { !it.isPaid }; val paid = sessions.filter { it.isPaid }
+                unpaid.groupBy { it.toyName to it.toyPrice }.forEach { (key, list) -> val unitPrice = key.second; val subTotal = list.sumOf { it.calculateCurrentProportionalValue() }; val qty = if (unitPrice > 0) subTotal / unitPrice else 1.0; val qtyDisplay = if (qty % 1.0 == 0.0) qty.toInt().toString() else "%.1f".format(qty).replace(".", ","); Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) { Text("${key.first.uppercase()} ${qtyDisplay}X R$ %.2f".format(unitPrice), modifier = Modifier.weight(1f), color = contentColor, fontSize = 14.sp, fontWeight = FontWeight.Bold); Text("R$ %.2f".format(subTotal), color = contentColor, fontWeight = FontWeight.Black, fontSize = 14.sp) } }
+                paid.groupBy { it.toyName to it.toyPrice }.forEach { (key, list) -> val unitPrice = key.second; val subTotal = list.sumOf { it.totalValueAccumulated }; val qty = if (unitPrice > 0) subTotal / unitPrice else 1.0; val qtyDisplay = if (qty % 1.0 == 0.0) qty.toInt().toString() else "%.1f".format(qty).replace(".", ","); Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) { Text("${key.first.uppercase()} ${qtyDisplay}X R$ %.2f".format(unitPrice), modifier = Modifier.weight(1f), color = contentColor, fontSize = 14.sp, fontWeight = FontWeight.Bold); Text("- R$ %.2f".format(subTotal), color = contentColor, fontWeight = FontWeight.Black, fontSize = 14.sp) } }
+            }
             HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp), color = contentColor.copy(alpha = 0.2f))
             Row(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp), horizontalArrangement = Arrangement.SpaceBetween) { Text("TOTAL BRUTO", color = contentColor, fontSize = 14.sp, fontWeight = FontWeight.Bold); Text("R$ %.2f".format(total), color = contentColor, fontSize = 14.sp, fontWeight = FontWeight.Bold) }
             if (alreadyPaid > 0) { Row(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp), horizontalArrangement = Arrangement.SpaceBetween) { Text("VALORES PAGOS (ANTECIPADO)", color = contentColor, fontSize = 14.sp, fontWeight = FontWeight.Bold); Text("- R$ %.2f".format(alreadyPaid), color = contentColor, fontSize = 14.sp, fontWeight = FontWeight.Bold) } }
@@ -437,8 +454,7 @@ fun ActiveTimerItemUI(context: Context, session: PlaySession, allToys: List<Toy>
     if (showPauseDialog) { AlertDialog(onDismissRequest = { showPauseDialog = false }, containerColor = if(isLightMode) Color.White else Color(0xFF1A1A1A) , title = { Text("LIBERAR BRINQUEDO?", color = IntenseGreen, fontWeight = FontWeight.Bold) }, text = { Text("Deseja liberar o brinquedo '${session.toyName}'?", color = if(isLightMode) Color.Black else Color.White) }, confirmButton = { TextButton(onClick = { onPauseToggle(true, true); showPauseDialog = false; showOptions = false }) { Text("SIM", color = IntenseGreen, fontWeight = FontWeight.Bold) } }, dismissButton = { TextButton(onClick = { onPauseToggle(true, false); showPauseDialog = false; showOptions = false }) { Text("NÃO", color = if(isLightMode) Color.Black else Color.Gray, fontWeight = FontWeight.Bold) } }) }
     if (showResetDialog != null) { val newToy = showResetDialog!!; AlertDialog(onDismissRequest = { showResetDialog = null }, containerColor = if(isLightMode) Color.White else Color(0xFF1A1A1A), title = { Text("REINICIAR?", color = IntenseGreen, fontWeight = FontWeight.Bold) }, text = { Text("Reiniciar para ${newToy.timeMinutes} min?", color = if(isLightMode) Color.Black else Color.White) }, confirmButton = { TextButton(onClick = { val earned = (session.elapsedSecondsInCurrentCycle.toDouble() / (session.toyTimeMinutes * 60.0).coerceAtLeast(1.0)) * session.toyPrice; onToyChanged(session.copy(toyName = newToy.name, toyPrice = newToy.price, toyTimeMinutes = newToy.timeMinutes, totalValueAccumulated = session.totalValueAccumulated + earned, elapsedSecondsInCurrentCycle = 0, remainingSeconds = (newToy.timeMinutes * 60).toLong(), isToyReleased = false)); showResetDialog = null }) { Text("SIM", color = IntenseGreen, fontWeight = FontWeight.Bold) } }, dismissButton = { TextButton(onClick = { val earned = (session.elapsedSecondsInCurrentCycle.toDouble() / (session.toyTimeMinutes * 60.0).coerceAtLeast(1.0)) * session.toyPrice; onToyChanged(session.copy(toyName = newToy.name, toyPrice = newToy.price, toyTimeMinutes = newToy.timeMinutes, totalValueAccumulated = session.totalValueAccumulated + earned, isToyReleased = false)); showResetDialog = null }) { Text("NÃO", color = if(isLightMode) Color.Black else Color.Gray, fontWeight = FontWeight.Bold) } }) }
     if (showOptions) { AlertDialog(onDismissRequest = { showOptions = false }, containerColor = if(isLightMode) Color.White else Color(0xFF212121), title = { Text("OPÇÕES", color = IntenseGreen, fontWeight = FontWeight.Black, style = highlightStyle) }, text = { Text("Ações para ${session.personName}:", color = if(isLightMode) Color.Black else Color.White) }, confirmButton = { Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) { Button(onClick = { if (session.isPaused) { onPauseToggle(false, false); showOptions = false } else { showPauseDialog = true } }, modifier = Modifier.weight(1f).height(50.dp), colors = ButtonDefaults.buttonColors(containerColor = IntenseGreen, contentColor = Color.Black), shape = RoundedCornerShape(25.dp)) { Text(if(session.isPaused) "RETOMAR" else "PAUSAR", fontSize = 11.sp, fontWeight = FontWeight.Bold) }; Button(onClick = { showSwapPicker = true; showOptions = false }, modifier = Modifier.weight(1f).height(50.dp), colors = ButtonDefaults.buttonColors(containerColor = Color.Blue), shape = RoundedCornerShape(25.dp)) { Text("TROCAR", fontSize = 11.sp, fontWeight = FontWeight.Bold) } } }, dismissButton = { TextButton(onClick = { onFinish(session); showOptions = false }) { Text("ENCERRAR", color = Color.Red, fontWeight = FontWeight.ExtraBold) } }) }
-    if (showSwapPicker) { AlertDialog(onDismissRequest = { showSwapPicker = false }, containerColor = if(isLightMode) Color.White else Color(0xFF1A1A1A), title = { Text("TROCAR BRINQUEDO", color = IntenseGreen, style = highlightStyle) }, text = { LazyColumn { items(allToys) { toy -> val isOccupied = !toy.isAlwaysFree && activeSessions.any { it.toyName == toy.name && !it.isFinished && !it.isToyReleased }; Row(modifier = Modifier.fillMaxWidth().clickable(enabled = !isOccupied) { showResetDialog = toy; showSwapPicker = false }.padding(12.dp), verticalAlignment = Alignment.CenterVertically) { Box(modifier = Modifier.size(50.dp).background(if(isLightMode) Color(0xFFF5F5F5) else Color(0xFF222222), RoundedCornerShape(8.dp)).clip(RoundedCornerShape(8.dp)), contentAlignment = Alignment.Center) { val bitmap = base64ToBitmap(toy.imageBase64)
-                                if (bitmap != null) Image(bitmap = bitmap.asImageBitmap(), contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) else Icon(Icons.Default.Toys, null, tint = IntenseGreen, modifier = Modifier.size(24.dp)) }; Spacer(Modifier.width(16.dp)); Text(toy.name.uppercase(), color = if(isOccupied) Color.Red else if(isLightMode) Color.Black else Color.White, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Bold); if(isOccupied) Text("OCUPADO", color = Color.Red, fontSize = 10.sp, modifier = Modifier.padding(end = 8.dp), fontWeight = FontWeight.Black); Text("R$ %.2f".format(toy.price), color = if(isOccupied) Color.Red else IntenseGreen, fontWeight = FontWeight.Bold) } } } }, confirmButton = { TextButton(onClick = { showSwapPicker = false }) { Text("VOLTAR", color = IntenseGreen, fontWeight = FontWeight.Bold) } }) }
+    if (showSwapPicker) { AlertDialog(onDismissRequest = { showSwapPicker = false }, containerColor = if(isLightMode) Color.White else Color(0xFF1A1A1A), title = { Text("TROCAR BRINQUEDO", color = IntenseGreen, style = highlightStyle) }, text = { LazyColumn { items(allToys) { toy -> val isOccupied = !toy.isAlwaysFree && activeSessions.any { it.toyName == toy.name && !it.isFinished && !it.isToyReleased }; Row(modifier = Modifier.fillMaxWidth().clickable(enabled = !isOccupied) { showResetDialog = toy; showSwapPicker = false }.padding(12.dp), verticalAlignment = Alignment.CenterVertically) { Box(modifier = Modifier.size(50.dp).background(if(isLightMode) Color(0xFFF5F5F5) else Color(0xFF222222), RoundedCornerShape(8.dp)).clip(RoundedCornerShape(8.dp)), contentAlignment = Alignment.Center) { val bitmap = base64ToBitmap(toy.imageBase64); if (bitmap != null) Image(bitmap = bitmap.asImageBitmap(), contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) else Icon(Icons.Default.Toys, null, tint = IntenseGreen, modifier = Modifier.size(24.dp)) }; Spacer(Modifier.width(16.dp)); Text(toy.name.uppercase(), color = if(isOccupied) Color.Red else if(isLightMode) Color.Black else Color.White, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Bold); if(isOccupied) Text("OCUPADO", color = Color.Red, fontSize = 10.sp, modifier = Modifier.padding(end = 8.dp), fontWeight = FontWeight.Black); Text("R$ %.2f".format(toy.price), color = if(isOccupied) Color.Red else IntenseGreen, fontWeight = FontWeight.Bold) } } } }, confirmButton = { TextButton(onClick = { showSwapPicker = false }) { Text("VOLTAR", color = IntenseGreen, fontWeight = FontWeight.Bold) } }) }
 }
 
 @Composable
