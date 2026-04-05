@@ -436,6 +436,7 @@ fun PDVRow(l: String, v: String, c: Color) { Row(modifier = Modifier.fillMaxWidt
 @Composable
 fun ActiveTimerItemUI(context: Context, session: PlaySession, allToys: List<Toy>, activeSessions: List<PlaySession>, printerMac: String, printerSize: String, logoBase64: String?, appName: String, isLightMode: Boolean, onFinish: (PlaySession) -> Unit, onContinue: (PlaySession) -> Unit, onToyChanged: (PlaySession) -> Unit, onPauseToggle: (Boolean, Boolean) -> Unit, onPaidToggle: (Boolean) -> Unit) {
     var showOptions by remember { mutableStateOf(false) }; var showSwapPicker by remember { mutableStateOf(false) }; var showPauseDialog by remember { mutableStateOf(false) }; var showResetDialog by remember { mutableStateOf<Toy?>(null) }
+    var showEditTimeDialog by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope(); var forceOriginalTimer by rememberSaveable { mutableStateOf(false) }; val isExpired = session.remainingSeconds <= 0L; val isLowTime = session.remainingSeconds > 0 && session.remainingSeconds < 60L; val currentVal = session.calculateCurrentProportionalValue(); val highlightStyle = getHighlightStyle(isLightMode); val density = LocalDensity.current; var paymentClicks by remember { mutableIntStateOf(0) }; val cashPlayer = remember { MediaPlayer.create(context, R.raw.caixa) }
     val swipeState = remember { AnchoredDraggableState<DragAnchors>(initialValue = DragAnchors.Center, positionalThreshold = { distance: Float -> distance * 0.5f }, velocityThreshold = { with(density) { 100.dp.toPx() } }, snapAnimationSpec = spring(), decayAnimationSpec = exponentialDecay()) }
     SideEffect { swipeState.updateAnchors(DraggableAnchors { DragAnchors.Start at -with(density) { 150.dp.toPx() }; DragAnchors.Center at 0f; DragAnchors.End at with(density) { 150.dp.toPx() } }) }; val currentOffset = try { swipeState.requireOffset() } catch (_: Exception) { 0f }; LaunchedEffect(session.isPaid) { if (!session.isPaid) forceOriginalTimer = false }
@@ -453,8 +454,62 @@ fun ActiveTimerItemUI(context: Context, session: PlaySession, allToys: List<Toy>
     LaunchedEffect(swipeState.currentValue) { if (swipeState.currentValue == DragAnchors.Center) paymentClicks = 0; if (swipeState.currentValue == DragAnchors.End) { forceOriginalTimer = !forceOriginalTimer; scope.launch { swipeState.animateTo(DragAnchors.Center) } } }
     if (showPauseDialog) { AlertDialog(onDismissRequest = { showPauseDialog = false }, containerColor = if(isLightMode) Color.White else Color(0xFF1A1A1A) , title = { Text("LIBERAR BRINQUEDO?", color = IntenseGreen, fontWeight = FontWeight.Bold) }, text = { Text("Deseja liberar o brinquedo '${session.toyName}'?", color = if(isLightMode) Color.Black else Color.White) }, confirmButton = { TextButton(onClick = { onPauseToggle(true, true); showPauseDialog = false; showOptions = false }) { Text("SIM", color = IntenseGreen, fontWeight = FontWeight.Bold) } }, dismissButton = { TextButton(onClick = { onPauseToggle(true, false); showPauseDialog = false; showOptions = false }) { Text("NÃO", color = if(isLightMode) Color.Black else Color.Gray, fontWeight = FontWeight.Bold) } }) }
     if (showResetDialog != null) { val newToy = showResetDialog!!; AlertDialog(onDismissRequest = { showResetDialog = null }, containerColor = if(isLightMode) Color.White else Color(0xFF1A1A1A), title = { Text("REINICIAR?", color = IntenseGreen, fontWeight = FontWeight.Bold) }, text = { Text("Reiniciar para ${newToy.timeMinutes} min?", color = if(isLightMode) Color.Black else Color.White) }, confirmButton = { TextButton(onClick = { val earned = (session.elapsedSecondsInCurrentCycle.toDouble() / (session.toyTimeMinutes * 60.0).coerceAtLeast(1.0)) * session.toyPrice; onToyChanged(session.copy(toyName = newToy.name, toyPrice = newToy.price, toyTimeMinutes = newToy.timeMinutes, totalValueAccumulated = session.totalValueAccumulated + earned, elapsedSecondsInCurrentCycle = 0, remainingSeconds = (newToy.timeMinutes * 60).toLong(), isToyReleased = false)); showResetDialog = null }) { Text("SIM", color = IntenseGreen, fontWeight = FontWeight.Bold) } }, dismissButton = { TextButton(onClick = { val earned = (session.elapsedSecondsInCurrentCycle.toDouble() / (session.toyTimeMinutes * 60.0).coerceAtLeast(1.0)) * session.toyPrice; onToyChanged(session.copy(toyName = newToy.name, toyPrice = newToy.price, toyTimeMinutes = newToy.timeMinutes, totalValueAccumulated = session.totalValueAccumulated + earned, isToyReleased = false)); showResetDialog = null }) { Text("NÃO", color = if(isLightMode) Color.Black else Color.Gray, fontWeight = FontWeight.Bold) } }) }
-    if (showOptions) { AlertDialog(onDismissRequest = { showOptions = false }, containerColor = if(isLightMode) Color.White else Color(0xFF212121), title = { Text("OPÇÕES", color = IntenseGreen, fontWeight = FontWeight.Black, style = highlightStyle) }, text = { Text("Ações para ${session.personName}:", color = if(isLightMode) Color.Black else Color.White) }, confirmButton = { Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) { Button(onClick = { if (session.isPaused) { onPauseToggle(false, false); showOptions = false } else { showPauseDialog = true } }, modifier = Modifier.weight(1f).height(50.dp), colors = ButtonDefaults.buttonColors(containerColor = IntenseGreen, contentColor = Color.Black), shape = RoundedCornerShape(25.dp)) { Text(if(session.isPaused) "RETOMAR" else "PAUSAR", fontSize = 11.sp, fontWeight = FontWeight.Bold) }; Button(onClick = { showSwapPicker = true; showOptions = false }, modifier = Modifier.weight(1f).height(50.dp), colors = ButtonDefaults.buttonColors(containerColor = Color.Blue), shape = RoundedCornerShape(25.dp)) { Text("TROCAR", fontSize = 11.sp, fontWeight = FontWeight.Bold) } } }, dismissButton = { TextButton(onClick = { onFinish(session); showOptions = false }) { Text("ENCERRAR", color = Color.Red, fontWeight = FontWeight.ExtraBold) } }) }
+    if (showOptions) { 
+        AlertDialog(
+            onDismissRequest = { showOptions = false }, 
+            containerColor = if(isLightMode) Color.White else Color(0xFF212121), 
+            title = {
+                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("OPÇÕES", color = IntenseGreen, fontWeight = FontWeight.Black, style = highlightStyle)
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { showOptions = false }.padding(4.dp)) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null, tint = if(isLightMode) Color.Black else IntenseGreen, modifier = Modifier.size(20.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("VOLTAR", color = if(isLightMode) Color.Black else IntenseGreen, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }, 
+            text = { Text("Ações para ${session.personName}:", color = if(isLightMode) Color.Black else Color.White) }, 
+            confirmButton = { 
+                Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) { 
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = { if (session.isPaused) { onPauseToggle(false, false); showOptions = false } else { showPauseDialog = true } }, modifier = Modifier.weight(1f).height(50.dp), colors = ButtonDefaults.buttonColors(containerColor = IntenseGreen, contentColor = Color.Black), shape = RoundedCornerShape(25.dp)) { Text(if(session.isPaused) "RETOMAR" else "PAUSAR", fontSize = 10.sp, fontWeight = FontWeight.Bold) }
+                        Button(onClick = { showEditTimeDialog = true; showOptions = false }, modifier = Modifier.weight(1f).height(50.dp), colors = ButtonDefaults.buttonColors(containerColor = Color.Yellow, contentColor = Color.Black), shape = RoundedCornerShape(25.dp)) { Row(verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Default.AccessTime, null, modifier = Modifier.size(14.dp)); Spacer(Modifier.width(4.dp)); Text("EDITAR", fontSize = 10.sp, fontWeight = FontWeight.Bold) } }
+                    }
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = { showSwapPicker = true; showOptions = false }, modifier = Modifier.weight(1f).height(50.dp), colors = ButtonDefaults.buttonColors(containerColor = Color.Blue, contentColor = Color.White), shape = RoundedCornerShape(25.dp)) { Text("TROCAR", fontSize = 10.sp, fontWeight = FontWeight.Bold) }
+                        Button(onClick = { onFinish(session); showOptions = false }, modifier = Modifier.weight(1f).height(50.dp), colors = ButtonDefaults.buttonColors(containerColor = Color.Red, contentColor = Color.White), shape = RoundedCornerShape(25.dp)) { Text("ENCERRAR", fontSize = 10.sp, fontWeight = FontWeight.ExtraBold) } 
+                    }
+                } 
+            }, 
+            dismissButton = {}
+        ) 
+    }
     if (showSwapPicker) { AlertDialog(onDismissRequest = { showSwapPicker = false }, containerColor = if(isLightMode) Color.White else Color(0xFF1A1A1A), title = { Text("TROCAR BRINQUEDO", color = IntenseGreen, style = highlightStyle) }, text = { LazyColumn { items(allToys) { toy -> val isOccupied = !toy.isAlwaysFree && activeSessions.any { it.toyName == toy.name && !it.isFinished && !it.isToyReleased }; Row(modifier = Modifier.fillMaxWidth().clickable(enabled = !isOccupied) { showResetDialog = toy; showSwapPicker = false }.padding(12.dp), verticalAlignment = Alignment.CenterVertically) { Box(modifier = Modifier.size(50.dp).background(if(isLightMode) Color(0xFFF5F5F5) else Color(0xFF222222), RoundedCornerShape(8.dp)).clip(RoundedCornerShape(8.dp)), contentAlignment = Alignment.Center) { val bitmap = base64ToBitmap(toy.imageBase64); if (bitmap != null) Image(bitmap = bitmap.asImageBitmap(), contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) else Icon(Icons.Default.Toys, null, tint = IntenseGreen, modifier = Modifier.size(24.dp)) }; Spacer(Modifier.width(16.dp)); Text(toy.name.uppercase(), color = if(isOccupied) Color.Red else if(isLightMode) Color.Black else Color.White, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Bold); if(isOccupied) Text("OCUPADO", color = Color.Red, fontSize = 10.sp, modifier = Modifier.padding(end = 8.dp), fontWeight = FontWeight.Black); Text("R$ %.2f".format(toy.price), color = if(isOccupied) Color.Red else IntenseGreen, fontWeight = FontWeight.Bold) } } } }, confirmButton = { TextButton(onClick = { showSwapPicker = false }) { Text("VOLTAR", color = IntenseGreen, fontWeight = FontWeight.Bold) } }) }
+    if (showEditTimeDialog) { EditTimeDialog(session = session, onDismiss = { showEditTimeDialog = false }, onConfirm = { mins -> onToyChanged(session.copy(remainingSeconds = mins * 60L)); showEditTimeDialog = false }, isLightMode = isLightMode) }
+}
+
+@Composable
+fun EditTimeDialog(session: PlaySession, onDismiss: () -> Unit, onConfirm: (Long) -> Unit, isLightMode: Boolean) {
+    var minutesText by remember { mutableStateOf((session.remainingSeconds / 60).toString()) }
+    val highlightStyle = getHighlightStyle(isLightMode)
+    AlertDialog(
+        onDismissRequest = onDismiss, containerColor = if(isLightMode) Color.White else Color(0xFF1A1A1A),
+        title = { Text("EDITAR TEMPO", color = IntenseGreen, fontWeight = FontWeight.Black, style = highlightStyle) },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(session.personName.uppercase(), color = if(isLightMode) Color.Black else Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                Spacer(Modifier.height(16.dp))
+                OutlinedTextField(value = minutesText, onValueChange = { if (it.all { c -> c.isDigit() }) minutesText = it }, label = { Text("MINUTOS RESTANTES", color = IntenseGreen) }, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true, textStyle = TextStyle(fontWeight = FontWeight.Bold, fontSize = 20.sp, color = if(isLightMode) Color.Black else Color.White), colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = IntenseGreen, cursorColor = IntenseGreen))
+                Spacer(Modifier.height(16.dp))
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = { minutesText = "999" }, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = Color.DarkGray, contentColor = Color.White), shape = RoundedCornerShape(12.dp), contentPadding = PaddingValues(0.dp)) { Text("TEMPO ABERTO", fontSize = 10.sp, fontWeight = FontWeight.Bold) }
+                    Button(onClick = { minutesText = session.toyTimeMinutes.toString() }, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF6200EE), contentColor = Color.White), shape = RoundedCornerShape(12.dp), contentPadding = PaddingValues(0.dp)) { Text("PERSONALIZAR", fontSize = 10.sp, fontWeight = FontWeight.Bold) }
+                }
+            }
+        },
+        confirmButton = { Button(onClick = { val mins = minutesText.toLongOrNull() ?: 0L; onConfirm(mins) }, colors = ButtonDefaults.buttonColors(containerColor = IntenseGreen, contentColor = Color.Black)) { Text("SALVAR", fontWeight = FontWeight.Black) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("CANCELAR", color = if(isLightMode) Color.Black else Color.Gray, fontWeight = FontWeight.Bold) } }
+    )
 }
 
 @Composable
