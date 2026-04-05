@@ -372,7 +372,7 @@ fun MainApp(themeMode: AppThemeMode, onThemeChange: (AppThemeMode) -> Unit) {
                             showLogoInLogin = false
                             sharedPrefs.edit().remove("login_logo_base64").putBoolean("show_logo_login", false).apply()
                         },
-                        onBack = { currentScreen = "settings" }, 
+                        onBack = { currentScreen = "settings" },
                         isLightMode = isLightMode
                     )
                     "access" -> AccessManagementScreen(isLightMode = isLightMode)

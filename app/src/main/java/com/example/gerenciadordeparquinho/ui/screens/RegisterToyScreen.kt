@@ -233,7 +233,7 @@ fun RegisterToyScreen(isLightMode: Boolean = false) {
 
 @Composable
 fun ToyItemUI(toy: Toy, textColor: Color, secondaryColor: Color, isLightMode: Boolean, onDelete: () -> Unit, onEdit: () -> Unit) {
-    Column(modifier = Modifier.fillMaxWidth()) {
+    Column(modifier = Modifier.fillMaxWidth().then(if(isLightMode) Modifier.border(0.5.dp, Color.Black.copy(alpha = 0.2f), RoundedCornerShape(8.dp)).padding(4.dp) else Modifier)) {
         Row(modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(modifier = Modifier.size(50.dp).background(if(isLightMode) Color(0xFFF5F5F5) else Color(0xFF1A1A1A), RoundedCornerShape(8.dp)).clip(RoundedCornerShape(8.dp)), contentAlignment = Alignment.Center) {
                 val bitmap = base64ToBitmap(toy.imageBase64)
@@ -246,9 +246,9 @@ fun ToyItemUI(toy: Toy, textColor: Color, secondaryColor: Color, isLightMode: Bo
             Spacer(Modifier.width(16.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(text = toy.name.uppercase(), color = textColor, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                Text(text = "R$ %.2f | ${toy.timeMinutes} MIN".format(toy.price), color = IntenseGreen, fontSize = 13.sp, fontWeight = if(isLightMode) FontWeight.Black else FontWeight.Normal)
+                Text(text = "R$ %.2f | ${toy.timeMinutes} MIN".format(toy.price), color = if(isLightMode) Color.Black else IntenseGreen, fontSize = 13.sp, fontWeight = if(isLightMode) FontWeight.Black else FontWeight.Normal)
             }
-            IconButton(onClick = onEdit) { Icon(Icons.Default.Edit, null, tint = IntenseGreen) }
+            IconButton(onClick = onEdit) { Icon(Icons.Default.Edit, null, tint = if(isLightMode) Color.Black else IntenseGreen) }
             IconButton(onClick = onDelete) { Icon(Icons.Default.Delete, null, tint = Color.Red) }
         }
         HorizontalDivider(color = secondaryColor.copy(alpha = 0.3f))

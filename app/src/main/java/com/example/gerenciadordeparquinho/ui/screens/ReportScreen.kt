@@ -228,7 +228,7 @@ fun ReportItemUI(
             }
             Row {
                 IconButton(onClick = onPrint) {
-                    Icon(Icons.Default.Print, null, tint = IntenseGreen, modifier = Modifier.size(24.dp))
+                    Icon(Icons.Default.Print, null, tint = if(isLightMode) Color.Black else IntenseGreen, modifier = Modifier.size(24.dp))
                 }
                 if (isAdmin) {
                     IconButton(onClick = onDelete) {
@@ -237,6 +237,6 @@ fun ReportItemUI(
                 }
             }
         }
-        HorizontalDivider(color = secondaryColor.copy(alpha = 0.3f), thickness = 0.5.dp)
+        HorizontalDivider(color = if(isLightMode) Color.Black else secondaryColor.copy(alpha = 0.3f), thickness = if(isLightMode) 2.dp else 0.5.dp)
     }
 }

@@ -185,7 +185,7 @@ fun HomeScreen(
                             val c = Calendar.getInstance(); c.set(y, m, d)
                             selectedDate = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).format(c.time) 
                         }, Calendar.getInstance().get(Calendar.YEAR), Calendar.getInstance().get(Calendar.MONTH), Calendar.getInstance().get(Calendar.DAY_OF_MONTH)).show() 
-                    }) { Icon(Icons.Default.CalendarToday, null, tint = IntenseGreen, modifier = Modifier.size(22.dp)) } 
+                    }) { Icon(Icons.Default.CalendarToday, null, tint = if(isLightMode) Color.Black else IntenseGreen, modifier = Modifier.size(22.dp)) } 
                     
                     if (isCashierMode && selectedForMerge.size > 1) {
                         IconButton(onClick = {
@@ -193,7 +193,7 @@ fun HomeScreen(
                             val mergedSessions = grouped.filter { it.key in selectedForMerge }.values.flatten().filter { !it.isPaid || !it.isFinished }
                             showCheckoutPDV = mergedNames to mergedSessions
                             showTicketsDialog = false
-                        }) { Icon(Icons.AutoMirrored.Filled.MergeType, "Juntar", tint = IntenseGreen, modifier = Modifier.size(26.dp)) }
+                        }) { Icon(Icons.AutoMirrored.Filled.MergeType, "Juntar", tint = if(isLightMode) Color.Black else IntenseGreen, modifier = Modifier.size(26.dp)) }
                     }
                 } 
             },
@@ -242,10 +242,10 @@ fun HomeScreen(
                             } 
                         } 
                     } 
-                    Text("TOTAL GERAL: R$ %.2f".format(grouped.values.flatten().sumOf { it.calculateCurrentProportionalValue() }), color = IntenseGreen, fontWeight = FontWeight.Black, fontSize = 18.sp, modifier = Modifier.fillMaxWidth().padding(top = 16.dp), textAlign = TextAlign.Center) 
+                    Text("TOTAL GERAL: R$ %.2f".format(grouped.values.flatten().sumOf { it.calculateCurrentProportionalValue() }), color = if(isLightMode) Color.Black else IntenseGreen, fontWeight = FontWeight.Black, fontSize = 18.sp, modifier = Modifier.fillMaxWidth().padding(top = 16.dp), textAlign = TextAlign.Center) 
                 } 
             },
-            confirmButton = { TextButton(onClick = { showTicketsDialog = false }) { Text("FECHAR", color = IntenseGreen, fontWeight = FontWeight.Bold) } }
+            confirmButton = { TextButton(onClick = { showTicketsDialog = false }) { Text("FECHAR", color = if(isLightMode) Color.Black else IntenseGreen, fontWeight = FontWeight.Bold) } }
         )
     }
 
@@ -269,12 +269,12 @@ fun HomeScreen(
                                 Text(toy.name.uppercase(), color = if(isOccupied) Color.Red else textColor, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 if(isOccupied) Text("OCUPADO", color = Color.Red, fontSize = 10.sp, fontWeight = FontWeight.Black) 
                             }
-                            Text("R$ %.2f".format(toy.price), color = if(isOccupied) Color.Red else IntenseGreen, fontWeight = FontWeight.Bold) 
+                            Text("R$ %.2f".format(toy.price), color = if(isOccupied) Color.Red else if(isLightMode) Color.Black else IntenseGreen, fontWeight = FontWeight.Bold) 
                         } 
                     } 
                 } 
             },
-            confirmButton = { TextButton(onClick = { showToyPicker = false }) { Text("FECHAR", color = IntenseGreen, fontWeight = FontWeight.Bold) } }
+            confirmButton = { TextButton(onClick = { showToyPicker = false }) { Text("FECHAR", color = if(isLightMode) Color.Black else IntenseGreen, fontWeight = FontWeight.Bold) } }
         )
     }
 
