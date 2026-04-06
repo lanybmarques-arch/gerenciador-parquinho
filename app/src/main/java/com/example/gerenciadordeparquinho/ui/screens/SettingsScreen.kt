@@ -61,7 +61,9 @@ fun SettingsScreen(
     logoBase64: String?,
     onSelectLogo: () -> Unit,
     onNavigateToLayout: () -> Unit,
-    isLightMode: Boolean = false
+    isLightMode: Boolean = false,
+    hideVirtualKeyboard: Boolean,
+    onHideVirtualKeyboardChange: (Boolean) -> Unit
 ) {
     val context = LocalContext.current
     val bgColor = if (isLightMode) Color.White else Color.Black
@@ -130,7 +132,7 @@ fun SettingsScreen(
         }
 
         if (showAppName) {
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(8.dp))
             OutlinedTextField(
                 value = appName,
                 onValueChange = onAppNameChange,
@@ -148,7 +150,7 @@ fun SettingsScreen(
             )
         }
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(8.dp))
 
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
             Text("ATIVAR LOGOTIPO", color = IntenseGreen, fontSize = 14.sp, fontWeight = FontWeight.ExtraBold, style = highlightStyle)
@@ -156,7 +158,7 @@ fun SettingsScreen(
         }
 
         if (showLogo) {
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(12.dp))
             logoBase64?.let { base64 ->
                 val bitmap = remember(base64) {
                     try {
@@ -170,7 +172,7 @@ fun SettingsScreen(
                     }
                 }
             }
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(8.dp))
             Button(
                 onClick = onSelectLogo, 
                 modifier = Modifier.fillMaxWidth().height(52.dp), 
@@ -182,6 +184,13 @@ fun SettingsScreen(
                 Spacer(modifier = Modifier.width(10.dp))
                 Text("SELECIONAR LOGOTIPO", color = IntenseGreen, fontWeight = FontWeight.Bold, fontSize = 14.sp)
             }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+            Text("OCULTAR TECLADO VIRTUAL", color = IntenseGreen, fontSize = 14.sp, fontWeight = FontWeight.ExtraBold, style = highlightStyle)
+            Switch(checked = hideVirtualKeyboard, onCheckedChange = onHideVirtualKeyboardChange, colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = IntenseGreen))
         }
 
         Spacer(modifier = Modifier.height(24.dp))

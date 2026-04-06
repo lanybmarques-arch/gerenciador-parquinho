@@ -11,6 +11,7 @@ import android.os.Build
 import android.os.Bundle
 import android.provider.MediaStore
 import android.util.Base64
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -19,6 +20,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
+
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -57,6 +59,28 @@ class MainActivity : ComponentActivity() {
             val savedTheme = sharedPrefs.getString("app_theme", AppThemeMode.DARK.name) ?: AppThemeMode.DARK.name
             var themeMode by rememberSaveable { mutableStateOf(AppThemeMode.valueOf(savedTheme)) }
             
+            // Estado reativo para o teclado no topo
+            var hideVirtualKeyboard by rememberSaveable { 
+                mutableStateOf(sharedPrefs.getBoolean("hide_virtual_keyboard", false)) 
+            }
+
+            // Lógica de monitoramento e bloqueio total
+            LaunchedEffect(hideVirtualKeyboard) {
+                if (hideVirtualKeyboard) {
+                    // Impede que a janela interaja com qualquer teclado virtual (IME)
+                    window.setFlags(
+                        WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM,
+                        WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM
+                    )
+                    // Reforço para garantir que ele não suba sozinho
+                    window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN)
+                } else {
+                    // Remove o bloqueio e volta ao padrão do sistema
+                    window.clearFlags(WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM)
+                    window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_UNSPECIFIED)
+                }
+            }
+
             val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { }
             
             LaunchedEffect(Unit) {
@@ -80,6 +104,11 @@ class MainActivity : ComponentActivity() {
                     onThemeChange = { 
                         themeMode = it
                         sharedPrefs.edit().putString("app_theme", it.name).apply()
+                    },
+                    hideVirtualKeyboard = hideVirtualKeyboard,
+                    onHideVirtualKeyboardChange = {
+                        hideVirtualKeyboard = it
+                        sharedPrefs.edit().putBoolean("hide_virtual_keyboard", it).apply()
                     }
                 )
             }
@@ -88,7 +117,12 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun MainApp(themeMode: AppThemeMode, onThemeChange: (AppThemeMode) -> Unit) {
+fun MainApp(
+    themeMode: AppThemeMode, 
+    onThemeChange: (AppThemeMode) -> Unit,
+    hideVirtualKeyboard: Boolean,
+    onHideVirtualKeyboardChange: (Boolean) -> Unit
+) {
     val context = LocalContext.current
     val sharedPrefs = remember { context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE) }
     val scope = rememberCoroutineScope()
@@ -334,7 +368,9 @@ fun MainApp(themeMode: AppThemeMode, onThemeChange: (AppThemeMode) -> Unit) {
                         logoBase64 = printerLogoBase64, 
                         onSelectLogo = { printerLogoLauncher.launch("image/*") }, 
                         onNavigateToLayout = { currentScreen = "layout" }, 
-                        isLightMode = isLightMode
+                        isLightMode = isLightMode,
+                        hideVirtualKeyboard = hideVirtualKeyboard,
+                        onHideVirtualKeyboardChange = onHideVirtualKeyboardChange
                     )
                     "layout" -> LayoutScreen(
                         isAdmin = isAdmin, 
